@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Users Collection
+    // UPDATED: Allow read/update for all logged-in users (required for Admin Target Settings)
+    match /users/{userId} {
+      allow read, create, update: if request.auth != null;
+    }
+
+    // 2. Outstanding Data
+    match /outstanding_data/{salesmanID} {
+      allow read: if request.auth != null;
+      allow update: if request.auth != null; // For phone numbers
+      allow create, delete: if false; 
+    }
+    
+    // 3. Pending Collections
+    match /pending_collections/{requestID} {
+      allow read, create: if request.auth != null;
+      allow update, delete: if request.auth != null; // For admin functionality
+    }
+
+    // 4. Party Directory
+    match /party_directory/{partyID} {
+      allow read, create, update: if request.auth != null;
+    }
+
+    // 5. Route Master Plan (UPDATED)
+    // Needs 'write' permission to save plans
+    match /salesman_master_plan/{planID} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 6. Pending Updates (Phone Verification)
+    match /pending_updates/{updateID} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+  }
+}

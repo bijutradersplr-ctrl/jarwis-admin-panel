@@ -1,0 +1,65 @@
+Total events analyzed: 718260
+
+Top 20 most time-consuming event types/functions (Total ms):
+RunTask: 68918.52 ms (Count: 85221)
+v8.callFunction: 4970.61 ms (Count: 2785)
+WidgetBaseInputHandler::OnHandleInputEvent: 2989.49 ms (Count: 189)
+WebFrameWidgetImpl::HandleInputEvent: 2977.27 ms (Count: 189)
+v8::Debugger::AsyncTaskRun: 2644.56 ms (Count: 86309)
+RunMicrotasks: 2411.74 ms (Count: 177)
+EventDispatch: click: 2405.97 ms (Count: 14)
+FunctionCall: : 2401.11 ms (Count: 167)
+V8Console::runTask: 2092.65 ms (Count: 84781)
+UpdateLayoutTree: 1789.49 ms (Count: 2453)
+GPUTask: 1634.70 ms (Count: 1890)
+Commit: 867.97 ms (Count: 1805)
+PrePaint: 406.28 ms (Count: 1636)
+Layout: 329.65 ms (Count: 26)
+LocalFrameView::performLayout: 326.95 ms (Count: 26)
+V8.GC_MC_BACKGROUND_MARKING: 318.96 ms (Count: 70)
+UpdateLayer: 307.69 ms (Count: 32508)
+PageAnimator::serviceScriptedAnimations: 270.22 ms (Count: 1385)
+V8.StackGuard: 249.41 ms (Count: 268)
+V8.HandleInterrupts: 248.61 ms (Count: 272)
+
+Top 40 longest individual tasks (>50ms):
+2125.28 ms | RunTask | Args: {}
+2125.13 ms | WidgetBaseInputHandler::OnHandleInputEvent | Args: {'event': 'GestureTap'}
+2125.11 ms | WebFrameWidgetImpl::HandleInputEvent | Args: {'type': 'GestureTap'}
+1753.56 ms | EventDispatch: click | Args: {'data': {'sampleTraceId': 813344858194497, 'type': 'click'}}
+1753.45 ms | v8.callFunction | Args: {}
+1752.96 ms | RunMicrotasks | Args: {'microtask_count': 4}
+1752.77 ms | v8.callFunction | Args: {}
+1752.67 ms | FunctionCall:  | Args: {'data': {'columnNumber': 35, 'frame': '1B05873CB38859EBFABF3A9870394B9A', 'functionName': '', 'isolate': '16914719500727981210', 'lineNumber': 13527,...
+492.81 ms | v8::Debugger::AsyncTaskRun | Args: {'data': {'sampleTraceId': 46599}}
+492.81 ms | V8Console::runTask | Args: {'data': {'sampleTraceId': 46600}}
+314.57 ms | RunTask | Args: {}
+303.59 ms | Commit | Args: {'frameSeqId': 48056, 'layerTreeId': 1}
+251.82 ms | RunTask | Args: {}
+230.68 ms | v8::Debugger::AsyncTaskRun | Args: {'data': {'sampleTraceId': 175375}}
+230.68 ms | V8Console::runTask | Args: {'data': {'sampleTraceId': 175376}}
+227.20 ms | RunTask | Args: {}
+210.48 ms | RunTask | Args: {}
+203.48 ms | Commit | Args: {'frameSeqId': 48246, 'layerTreeId': 1}
+190.69 ms | UpdateLayoutTree | Args: {'beginData': {'frame': '1B05873CB38859EBFABF3A9870394B9A', 'sampleTraceId': 813344858224393}, 'elementCount': 34121}
+179.08 ms | RunTask | Args: {}
+179.05 ms | GPUTask | Args: {'data': {'renderer_pid': 12408, 'used_bytes': 14969004}}
+168.59 ms | RunTask | Args: {}
+159.63 ms | RunTask | Args: {}
+159.56 ms | EvaluateScript | Args: {}
+153.46 ms | RunTask | Args: {}
+152.48 ms | V8.StackGuard | Args: {}
+152.48 ms | V8.HandleInterrupts | Args: {}
+152.47 ms | V8.InvokeApiInterruptCallbacks | Args: {}
+151.18 ms | CpuProfiler::StartProfiling | Args: {}
+147.08 ms | Layout | Args: {'beginData': {'dirtyObjects': 22265, 'frame': '1B05873CB38859EBFABF3A9870394B9A', 'partialLayout': False, 'sampleTraceId': 813344858224436, 'totalObj...
+146.32 ms | LocalFrameView::performLayout | Args: {'contentsHeightBeforeLayout': 592}
+132.78 ms | RunTask | Args: {}
+132.72 ms | WidgetBaseInputHandler::OnHandleInputEvent | Args: {'event': 'GestureTap'}
+132.69 ms | WebFrameWidgetImpl::HandleInputEvent | Args: {'type': 'GestureTap'}
+130.59 ms | RunTask | Args: {}
+121.51 ms | RunTask | Args: {}
+121.49 ms | GPUTask | Args: {'data': {'renderer_pid': 6664, 'used_bytes': 42450944}}
+112.01 ms | Layout | Args: {'beginData': {'dirtyObjects': 22317, 'frame': '1B05873CB38859EBFABF3A9870394B9A', 'partialLayout': False, 'sampleTraceId': 813344858220700, 'totalObj...
+111.20 ms | LocalFrameView::performLayout | Args: {'contentsHeightBeforeLayout': 592}
+99.02 ms | EventDispatch: click | Args: {'data': {'sampleTraceId': 813344858198343, 'type': 'click'}}
