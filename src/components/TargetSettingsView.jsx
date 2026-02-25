@@ -290,7 +290,7 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
 
     return (
         <>
-            <div className="space-y-6 animate-fade-in pb-20">
+            <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
                 <div className="flex items-center gap-4 mb-2">
                     <button onClick={onBack} className="p-3 bg-white/5 rounded-2xl border border-white/10 text-slate-300 hover:bg-white/10 active:scale-90 transition-all shadow-xl backdrop-blur-md">
                         <ArrowLeft size={24} />
@@ -322,84 +322,82 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
                             const isSaved = saving === user.id;
 
                             return (
-                                <div key={user.id} className="bg-slate-900/40 border border-white/5 rounded-[2.5rem] p-8 hover:bg-white/[0.02] transition-colors group relative overflow-hidden">
+                                <div key={user.id} className="bg-slate-900/40 border border-white/5 rounded-3xl p-4 sm:p-6 hover:bg-white/[0.02] transition-colors group relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-[50px] rounded-full group-hover:bg-amber-500/10 transition-all"></div>
 
                                     <div className="relative z-10">
-                                        <div className="flex items-start justify-between mb-8">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-500">
-                                                    <Users size={20} />
+                                        <div className="flex items-start justify-between mb-6">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-500">
+                                                    <Users size={16} />
                                                 </div>
                                                 <div>
-                                                    <h4 className="text-lg font-black text-white uppercase tracking-tight">{user.name}</h4>
+                                                    <h4 className="text-base font-black text-white uppercase tracking-tight">{user.name}</h4>
                                                     {!user.isLinked ? (
-                                                        <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest flex items-center gap-1.5 mt-1">
-                                                            <ShieldAlert size={10} /> Preset Account (Not Registered)
+                                                        <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest flex items-center gap-1 mt-0.5">
+                                                            <ShieldAlert size={8} /> Preset Account
                                                         </p>
                                                     ) : (
-                                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">UID: {user.id.substring(0, 8)}...</p>
+                                                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">UID: {user.id.substring(0, 8)}...</p>
                                                     )}
                                                 </div>
                                             </div>
                                             <button
                                                 onClick={() => handleRemove(user)}
                                                 disabled={removing === user.id}
-                                                className="p-2 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all active:scale-90"
+                                                className="p-1.5 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500 hover:text-white transition-all active:scale-90"
                                                 title="Remove Salesman"
                                             >
-                                                {removing === user.id ? <div className="animate-spin w-4 h-4 border-2 border-red-500/30 border-t-red-500 rounded-full"></div> : <Trash2 size={18} />}
+                                                {removing === user.id ? <div className="animate-spin w-3 h-3 border-2 border-red-500/30 border-t-red-500 rounded-full"></div> : <Trash2 size={16} />}
                                             </button>
                                         </div>
 
-                                        <div className="grid md:grid-cols-3 gap-6 mb-8">
-                                            <div className="space-y-2">
-                                                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Monthly Target (₹)</label>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                                            <div className="space-y-1.5">
+                                                <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest ml-1">Monthly Target (₹)</label>
                                                 <input
                                                     type="number"
                                                     disabled={false}
                                                     value={user.monthly_target}
                                                     onChange={(e) => updateField(user.id, 'monthly_target', e.target.value)}
-                                                    className="w-full bg-slate-950/50 border border-white/10 rounded-2xl py-4 px-6 text-xl font-black text-white outline-none focus:border-amber-500/50 transition-all placeholder-slate-800"
+                                                    className="w-full bg-slate-950/50 border border-white/10 rounded-xl py-3 px-4 text-base font-black text-white outline-none focus:border-amber-500/50 transition-all placeholder-slate-800"
                                                 />
                                             </div>
-
-                                            <div className="space-y-2">
-                                                <label className="text-[9px] font-black text-emerald-500 uppercase tracking-widest ml-1">Total Sales (This Month)</label>
+                                            <div className="space-y-1.5">
+                                                <label className="text-[8px] font-black text-emerald-500 uppercase tracking-widest ml-1">Total Sales</label>
                                                 <input
                                                     type="number"
                                                     disabled={false}
                                                     value={user.total_achieved}
                                                     onChange={(e) => updateField(user.id, 'total_achieved', e.target.value)}
-                                                    className="w-full bg-slate-950/50 border border-emerald-500/10 rounded-2xl py-4 px-6 text-xl font-black text-emerald-400 outline-none focus:border-emerald-500/50 transition-all placeholder-slate-800"
+                                                    className="w-full bg-slate-950/50 border border-emerald-500/10 rounded-xl py-3 px-4 text-base font-black text-emerald-400 outline-none focus:border-emerald-500/50 transition-all placeholder-slate-800"
                                                 />
                                             </div>
-
-                                            <div className="space-y-2">
-                                                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Working Days</label>
+                                            <div className="space-y-1.5">
+                                                <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest ml-1">Working Days</label>
                                                 <input
                                                     type="number"
                                                     disabled={false}
                                                     value={user.working_days}
                                                     onChange={(e) => updateField(user.id, 'working_days', e.target.value)}
-                                                    className="w-full bg-slate-950/50 border border-white/10 rounded-2xl py-4 px-6 text-xl font-black text-white outline-none focus:border-amber-500/50 transition-all placeholder-slate-800"
+                                                    className="w-full bg-slate-950/50 border border-white/10 rounded-xl py-3 px-4 text-base font-black text-white outline-none focus:border-amber-500/50 transition-all placeholder-slate-800"
                                                 />
                                             </div>
                                         </div>
 
                                         {/* Stats Row */}
-                                        <div className="grid grid-cols-3 gap-3 mb-6">
-                                            <div className="bg-white/5 rounded-2xl p-4 border border-white/5 flex flex-col justify-center">
-                                                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Achieved (Month)</p>
-                                                <p className="text-sm font-black text-emerald-400">₹{user.achieved.toLocaleString('en-IN')}</p>
+                                        <div className="grid grid-cols-3 gap-2 mb-4">
+                                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5 flex flex-col justify-center">
+                                                <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Achieved</p>
+                                                <p className="text-xs font-black text-emerald-400">₹{user.achieved.toLocaleString('en-IN')}</p>
                                             </div>
-                                            <div className="bg-white/5 rounded-2xl p-4 border border-emerald-500/20 flex flex-col justify-center shadow-[0_4px_20px_-5px_rgba(16,185,129,0.1)]">
-                                                <p className="text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1">Achieved Today</p>
-                                                <p className="text-sm font-black text-emerald-400">₹{user.achievedToday.toLocaleString('en-IN')}</p>
+                                            <div className="bg-white/5 rounded-xl p-2.5 border border-emerald-500/20 flex flex-col justify-center shadow-[0_4px_20px_-5px_rgba(16,185,129,0.1)]">
+                                                <p className="text-[7px] font-black text-emerald-500 uppercase tracking-widest mb-0.5">Today</p>
+                                                <p className="text-xs font-black text-emerald-400">₹{user.achievedToday.toLocaleString('en-IN')}</p>
                                             </div>
-                                            <div className="bg-white/5 rounded-2xl p-4 border border-white/5 flex flex-col justify-center">
-                                                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Req. Daily</p>
-                                                <p className="text-sm font-black text-amber-400">₹{Number(dailyGoal).toLocaleString('en-IN')}</p>
+                                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5 flex flex-col justify-center">
+                                                <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Req. Daily</p>
+                                                <p className="text-xs font-black text-amber-400">₹{Number(dailyGoal).toLocaleString('en-IN')}</p>
                                             </div>
                                         </div>
 

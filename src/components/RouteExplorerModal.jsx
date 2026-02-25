@@ -87,7 +87,7 @@ export default function RouteExplorerModal({ isOpen, onClose, salesmenData, allP
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-2">
             <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" onClick={onClose}></div>
-            <div className="bg-slate-900 border border-white/10 w-full max-w-lg rounded-[2rem] overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-300 flex flex-col h-[95vh]">
+            <div className="bg-slate-900 border border-white/10 w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-300 flex flex-col h-[90vh]">
 
                 {/* Header */}
                 <div className="px-4 py-2 border-b border-white/5 bg-indigo-900/10 flex justify-between items-center shrink-0">
@@ -136,8 +136,8 @@ export default function RouteExplorerModal({ isOpen, onClose, salesmenData, allP
                                                     }}
                                                     className="w-full text-left px-4 py-3 rounded-lg hover:bg-white/5 flex items-center justify-between group transition-colors"
                                                 >
-                                                    <span className={`text-xs font-bold ${selectedSalesman === s.id ? 'text-indigo-400' : 'text-slate-300'} group-hover:text-white`}>{s.id}</span>
-                                                    {selectedSalesman === s.id && <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>}
+                                                    <span className={`text-[11px] font-bold ${selectedSalesman === s.id ? 'text-indigo-400' : 'text-slate-300'} group-hover:text-white`}>{s.id}</span>
+                                                    {selectedSalesman === s.id && <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 shadow-[0_0_10px_#6366f1]"></div>}
                                                 </button>
                                             ))
                                         ) : (
@@ -194,14 +194,14 @@ export default function RouteExplorerModal({ isOpen, onClose, salesmenData, allP
 
                     {/* Route Total - Sticky at top */}
                     {selectedRoute && (
-                        <div className="bg-gradient-to-r from-indigo-600/20 to-blue-600/10 border border-indigo-500/30 rounded-xl px-4 py-2 flex justify-between items-center shadow-lg shadow-indigo-500/10">
+                        <div className="bg-gradient-to-r from-indigo-600/20 to-blue-600/10 border border-indigo-500/30 rounded-2xl px-4 py-3 flex justify-between items-center shadow-lg shadow-indigo-500/10">
                             <div>
-                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{selectedRoute}</p>
-                                <p className="text-[9px] font-bold text-slate-500 mt-0.5">{filteredBills.length} Bills • {Object.keys(filteredBills.reduce((a, b) => { a[b.Party || '?'] = 1; return a; }, {})).length} Shops</p>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{selectedRoute}</p>
+                                <p className="text-[10px] font-bold text-slate-500 mt-0.5">{filteredBills.length} Bills • {Object.keys(filteredBills.reduce((a, b) => { a[b.Party || '?'] = 1; return a; }, {})).length} Shops</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-xl font-black text-white tabular-nums tracking-tight drop-shadow-[0_0_20px_rgba(99,102,241,0.4)]">₹{routeTotal.toLocaleString('en-IN')}</p>
-                                <p className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">Route Total</p>
+                                <p className="text-2xl font-black text-white tabular-nums tracking-tighter drop-shadow-[0_0_20px_rgba(99,102,241,0.4)]">₹{routeTotal.toLocaleString('en-IN')}</p>
+                                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Route Total</p>
                             </div>
                         </div>
                     )}
@@ -226,9 +226,9 @@ export default function RouteExplorerModal({ isOpen, onClose, salesmenData, allP
                             }, {})).sort((a, b) => b[1].total - a[1].total).slice(0, displayedShopsLimit).map(([shopName, shopData], shopIdx) => (
                                 <div key={shopIdx} className="bg-gradient-to-br from-white/[0.05] to-transparent border border-white/10 rounded-[1.5rem] overflow-hidden shadow-xl shadow-blue-500/5 mb-3 backdrop-blur-sm min-h-fit group">
                                     {/* Shop Header */}
-                                    <div className="px-5 py-4 bg-white/[0.02] border-b border-white/5 flex justify-between items-center overflow-visible">
+                                    <div className="px-5 py-4 bg-white/[0.04] border-b border-white/5 flex justify-between items-center overflow-visible">
                                         <div className="min-w-0 pr-4">
-                                            <h4 className="text-white text-sm font-bold whitespace-normal break-words line-clamp-2 uppercase tracking-tight leading-tight group-hover:text-indigo-400 transition-colors">{shopName}</h4>
+                                            <h4 className="text-white text-base font-black whitespace-normal break-words line-clamp-2 uppercase tracking-tight leading-tight group-hover:text-indigo-400 transition-colors">{shopName}</h4>
                                             <div className="flex items-center gap-2 mt-2">
                                                 {/* GRADE BADGE */}
                                                 {(() => {
@@ -303,23 +303,23 @@ export default function RouteExplorerModal({ isOpen, onClose, salesmenData, allP
                                             const isCritical = daysPending > 45;
 
                                             return (
-                                                <div key={billIdx} className="px-5 py-3 flex items-center justify-between hover:bg-white/[0.02] transition-colors border-l-2" style={{ borderColor: daysPending > 14 ? '#ef4444' : (daysPending > 7 ? '#f59e0b' : '#10b981') }}>
+                                                <div key={billIdx} className="px-5 py-3.5 flex items-center justify-between hover:bg-white/[0.03] transition-colors border-l-2" style={{ borderColor: daysPending > 14 ? '#ef4444' : (daysPending > 7 ? '#f59e0b' : '#10b981') }}>
                                                     <div className="flex items-center gap-3">
-                                                        <div className="w-1 h-8 rounded-full shadow-inner" style={{ backgroundColor: daysPending > 14 ? '#ef4444' : (daysPending > 7 ? '#f59e0b' : '#10b981'), boxShadow: daysPending > 14 ? '0 0 10px rgba(239,68,68,0.7)' : (daysPending > 7 ? '0 0 10px rgba(245,158,11,0.7)' : '0 0 10px rgba(16,185,129,0.7)') }}></div>
+                                                        <div className="w-1 h-6 rounded-full shadow-inner" style={{ backgroundColor: daysPending > 14 ? '#ef4444' : (daysPending > 7 ? '#f59e0b' : '#10b981'), boxShadow: daysPending > 14 ? '0 0 10px rgba(239,68,68,0.7)' : (daysPending > 7 ? '0 0 10px rgba(245,158,11,0.7)' : '0 0 10px rgba(16,185,129,0.7)') }}></div>
                                                         <div>
                                                             <div className="flex items-center gap-2">
-                                                                <span className="text-[10px] font-bold text-slate-400 opacity-60 uppercase tracking-wider">#{bill['Bill No'] || 'N/A'}</span>
-                                                                <span className="text-[10px] font-black text-indigo-300 uppercase tracking-widest italic opacity-90">{dateStr}</span>
-                                                            </div>
-                                                            <div className="mt-0.5 text-right">
-                                                                <span className="text-[9px] font-black uppercase tracking-[0.15em]" style={{ color: daysPending > 14 ? '#ef4444' : (daysPending > 7 ? '#f59e0b' : '#10b981') }}>
-                                                                    {daysPending} Days {isCritical && '!'}
-                                                                </span>
+                                                                <span className="text-[11px] font-bold text-slate-400 opacity-60 uppercase tracking-wider">#{bill['Bill No'] || 'N/A'}</span>
+                                                                <span className="text-[11px] font-black text-indigo-300 uppercase tracking-widest italic opacity-90">{dateStr}</span>
                                                             </div>
                                                         </div>
                                                     </div>
                                                     <div className="text-right">
-                                                        <p className="text-sm font-black text-white tracking-tighter tabular-nums">₹{Number(bill.Amount).toLocaleString('en-IN')}</p>
+                                                        <p className="text-base font-black text-white tracking-tighter tabular-nums leading-none">₹{Number(bill.Amount).toLocaleString('en-IN')}</p>
+                                                        <div className="mt-1">
+                                                            <span className="text-[9px] font-black uppercase tracking-[0.15em]" style={{ color: daysPending > 14 ? '#ef4444' : (daysPending > 7 ? '#f59e0b' : '#10b981') }}>
+                                                                {daysPending} Days {isCritical && '!'}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )

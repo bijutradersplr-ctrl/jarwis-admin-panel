@@ -133,13 +133,15 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
 
     // 1. Core Data: Extract all individual bills with metadata
     const allIndividualBills = useMemo(() => {
+        if (!salesmenData) return [];
         const raw = salesmenData.flatMap(s => {
+            if (!s || !s.id) return [];
             const sidRaw = s.id.trim().toUpperCase();
             const sidNorm = sidRaw.replace(/[^A-Z0-9]/g, '');
 
             // Use NORMALIZED key for Matrix/Master Plan lookups
             const todayScheduledRoute = todayRouteInfo[sidNorm] || todayRouteInfo[sidRaw];
-            const plan = masterPlans[sidNorm] || masterPlans[sidRaw];
+            const plan = (masterPlans || {})[sidNorm] || (masterPlans || {})[sidRaw];
 
             const company = plan?.company || plan?.Company || 'Other';
 
@@ -382,9 +384,9 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
     const eligibleCount = displayData.filter(i => (viewMode === 'individual' ? i.phoneNormalized : i.phone).length >= 10).length;
 
     return (
-        <div className="flex flex-col h-full animate-fade-in">
+        <div className="flex flex-col h-full animate-fade-in max-w-2xl mx-auto">
             {/* COMPACT NO-SCROLL HEADER */}
-            <div className="shrink-0 z-40 bg-[#0F172A]/95 backdrop-blur-xl py-0.5 -mx-4 px-4 border-b border-white/5 shadow-xl space-y-1 mb-1">
+            <div className="shrink-0 z-40 bg-[#0F172A]/95 backdrop-blur-xl py-0.5 px-4 border-b border-white/5 shadow-xl space-y-1 mb-1">
 
                 {/* Row 1: Title + Actions */}
                 <div className="flex items-center gap-2">

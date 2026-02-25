@@ -69,9 +69,9 @@ const CollectionAnalytics = ({ allPayments, salesmenTargets }) => {
     }, [salesmenTargets]);
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
+        <div className="flex flex-col gap-6 animate-fade-in max-w-2xl mx-auto">
             {/* Trend Chart */}
-            <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-8 shadow-xl">
+            <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 text-blue-400">
                         <TrendingUp size={18} />
@@ -130,7 +130,7 @@ const CollectionAnalytics = ({ allPayments, salesmenTargets }) => {
             </div>
 
             {/* Performance Chart */}
-            <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-8 shadow-xl">
+            <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 text-emerald-400">
                         <TargetIcon size={18} />

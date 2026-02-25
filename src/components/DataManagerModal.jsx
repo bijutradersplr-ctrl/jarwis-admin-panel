@@ -105,18 +105,18 @@ const DataManagerModal = ({ onClose }) => {
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-            <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl">
-                <div className="p-6 border-b border-white/5 flex items-center justify-between bg-slate-950/50">
-                    <h3 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-3">
-                        <FileSpreadsheet className="text-emerald-500" />
+            <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl relative">
+                <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between bg-slate-950/50">
+                    <h3 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-3">
+                        <FileSpreadsheet className="text-emerald-500" size={18} />
                         Data Manager
                     </h3>
-                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-400 hover:text-white">
-                        <X size={20} />
+                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
+                        <X size={18} />
                     </button>
                 </div>
 
-                <div className="p-8 space-y-6">
+                <div className="p-5 sm:p-6 space-y-5">
                     {!previewData.length ? (
                         <div className="border-2 border-dashed border-white/10 rounded-2xl p-10 flex flex-col items-center justify-center text-center gap-4 hover:border-blue-500/50 hover:bg-blue-500/5 transition-all group cursor-pointer relative">
                             <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
@@ -177,14 +177,14 @@ const DataManagerModal = ({ onClose }) => {
                     )}
                 </div>
 
-                <div className="p-6 border-t border-white/5 flex justify-end gap-3 bg-slate-950/50">
-                    <button onClick={onClose} className="px-6 py-3 rounded-xl font-bold text-slate-400 hover:bg-white/5 transition-all">Cancel</button>
+                <div className="px-5 py-4 border-t border-white/5 flex justify-end gap-3 bg-slate-950/50">
+                    <button onClick={onClose} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:bg-white/5 transition-all">Cancel</button>
                     <button
                         onClick={processImport}
                         disabled={!previewData.length || uploading}
-                        className="px-6 py-3 rounded-xl font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all shadow-lg shadow-blue-600/20"
+                        className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all shadow-lg shadow-blue-600/20"
                     >
-                        {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                        {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                         {uploading ? 'Importing...' : 'Start Import'}
                     </button>
                 </div>

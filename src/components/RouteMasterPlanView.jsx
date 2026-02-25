@@ -145,7 +145,7 @@ export default function RouteMasterPlanView({ salesmenData, onBack }) {
     };
 
     return (
-        <div className="space-y-6 animate-fade-in pb-20">
+        <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
             <div className="flex items-center gap-4 mb-2">
                 <button onClick={onBack} className="p-3 bg-white/5 rounded-2xl border border-white/10 text-slate-300 hover:bg-white/10 active:scale-90 transition-all shadow-xl backdrop-blur-md">
                     <ArrowLeft size={24} />
@@ -156,22 +156,22 @@ export default function RouteMasterPlanView({ salesmenData, onBack }) {
                 </div>
             </div>
 
-            <div className="bg-slate-900/40 border border-white/5 rounded-[2rem] p-6 md:p-8 space-y-8 relative overflow-hidden">
+            <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-4 sm:p-6 space-y-6 relative overflow-hidden">
                 {/* Background Decor */}
                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 blur-[80px] rounded-full pointer-events-none"></div>
 
                 {/* SELECTORS */}
-                <div className="grid md:grid-cols-2 gap-6 relative z-10">
-                    <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Select Salesman</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative z-10">
+                    <div className="space-y-1.5">
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Select Salesman</label>
                         <div className="relative group">
-                            <Truck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={18} />
+                            <Truck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={14} />
                             <select
                                 value={selectedSalesman}
                                 onChange={(e) => setSelectedSalesman(e.target.value)}
-                                className="w-full bg-slate-950/50 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-xs font-bold text-white outline-none focus:border-indigo-500/50 appearance-none cursor-pointer transition-all hover:bg-white/[0.02]"
+                                className="w-full bg-slate-950/50 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs font-bold text-white outline-none focus:border-indigo-500/50 appearance-none cursor-pointer transition-all hover:bg-white/[0.02]"
                             >
-                                <option value="" className="bg-slate-950 text-white">-- Choose Salesman --</option>
+                                <option value="" className="bg-slate-950 text-white">-- Choose --</option>
                                 {salesmenList.map(s => (
                                     <option key={s.id} value={s.id} className="bg-slate-950 text-white">{s.name}</option>
                                 ))}
@@ -179,14 +179,14 @@ export default function RouteMasterPlanView({ salesmenData, onBack }) {
                         </div>
                     </div>
 
-                    <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Assign Company</label>
+                    <div className="space-y-1.5">
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Assign Company</label>
                         <div className="relative group">
-                            <Map className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={18} />
+                            <Map className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={14} />
                             <select
                                 value={selectedCompany}
                                 onChange={(e) => setSelectedCompany(e.target.value)}
-                                className="w-full bg-slate-950/50 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-xs font-bold text-white outline-none focus:border-indigo-500/50 appearance-none cursor-pointer transition-all hover:bg-white/[0.02]"
+                                className="w-full bg-slate-950/50 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xs font-bold text-white outline-none focus:border-indigo-500/50 appearance-none cursor-pointer transition-all hover:bg-white/[0.02]"
                             >
                                 <option value="Cadbury" className="bg-slate-950 text-white">Cadbury</option>
                                 <option value="Britannia" className="bg-slate-950 text-white">Britannia</option>
@@ -245,14 +245,14 @@ export default function RouteMasterPlanView({ salesmenData, onBack }) {
                         </div>
 
                         {/* SAVE ACTION */}
-                        <div className="pt-4 flex justify-end">
+                        <div className="pt-2 flex justify-end">
                             <button
                                 onClick={handleSave}
                                 disabled={saving || loading}
-                                className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-3 transition-all shadow-lg hover:shadow-indigo-500/20 ${saving ? 'bg-indigo-600 text-white cursor-wait' : 'bg-white text-indigo-950 hover:bg-indigo-50 active:scale-95'}`}
+                                className={`w-full sm:w-auto px-6 py-3 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-indigo-500/20 ${saving ? 'bg-indigo-600 text-white cursor-wait' : 'bg-white text-indigo-950 hover:bg-indigo-50 active:scale-95'}`}
                             >
-                                {saving ? <div className="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></div> : <Save size={16} />}
-                                {saving ? 'Saving Plan...' : 'Save Master Plan'}
+                                {saving ? <div className="animate-spin w-3 h-3 border-2 border-white/30 border-t-white rounded-full"></div> : <Save size={14} />}
+                                {saving ? 'Saving...' : 'Save Plan'}
                             </button>
                         </div>
                     </div>

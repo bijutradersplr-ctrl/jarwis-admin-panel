@@ -71,7 +71,7 @@ const LeaderboardView = ({ topPerformers }) => {
     };
 
     return (
-        <div className="space-y-8 animate-fade-in pb-20">
+        <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
             {/* TOP 3 PODIUM */}
             <div className="flex justify-center items-end gap-2 md:gap-4 mt-8 h-48">
                 {/* 2nd Place */}
@@ -127,7 +127,7 @@ const LeaderboardView = ({ topPerformers }) => {
             </div>
 
             {/* RANKING LIST */}
-            <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 shadow-2xl relative overflow-hidden">
+            <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 rounded-[2rem] p-4 sm:p-6 shadow-2xl relative overflow-hidden">
                 <div className="flex items-center justify-between mb-6 px-4">
                     <h3 className="text-lg font-black text-white uppercase italic tracking-tight flex items-center gap-2">
                         <TrendingUp size={20} className="text-blue-400" />
@@ -139,7 +139,7 @@ const LeaderboardView = ({ topPerformers }) => {
                     {rankings.map((s, idx) => (
                         <div
                             key={s.id}
-                            className={`group bg-white/5 p-4 rounded-3xl border border-white/5 flex items-center justify-between hover:border-white/10 transition-all ${selectedSalesman?.id === s.id ? 'ring-2 ring-blue-500/30 bg-blue-500/5' : ''}`}
+                            className={`group bg-white/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 flex items-center justify-between hover:border-white/10 transition-all active:scale-[0.99] cursor-pointer ${selectedSalesman?.id === s.id ? 'ring-2 ring-blue-500/30 bg-blue-500/5' : ''}`}
                             onClick={() => setSelectedSalesman(selectedSalesman?.id === s.id ? null : s)}
                         >
                             <div className="flex items-center gap-4">

@@ -164,6 +164,9 @@ export default function AdminDashboard({ adminName }) {
             const pData = [];
             const todayStr = new Date().toLocaleDateString('en-CA');
             let collectedToday = 0;
+            let cashToday = 0;
+            let upiToday = 0;
+            let chequeToday = 0;
 
             snap.forEach(doc => {
                 const data = doc.data();
@@ -173,12 +176,24 @@ export default function AdminDashboard({ adminName }) {
                 if (data.timestamp && typeof data.timestamp.toDate === 'function') {
                     const reqDateStr = data.timestamp.toDate().toLocaleDateString('en-CA');
                     if (reqDateStr === todayStr) {
-                        collectedToday += Number(data.amount || 0);
+                        const amount = Number(data.amount || 0);
+                        collectedToday += amount;
+
+                        const type = (data.payment_type || 'Cash').toLowerCase();
+                        if (type === 'cash') cashToday += amount;
+                        else if (type === 'upi') upiToday += amount;
+                        else if (type === 'cheque') chequeToday += amount;
                     }
                 }
             });
             setAllPayments(pData);
-            setStats(prev => ({ ...prev, totalCollectedToday: collectedToday }));
+            setStats(prev => ({
+                ...prev,
+                totalCollectedToday: collectedToday,
+                cashToday,
+                upiToday,
+                chequeToday
+            }));
             setLoading(false);
         });
 
@@ -428,7 +443,6 @@ export default function AdminDashboard({ adminName }) {
     const handleApprovePayment = async (pId, amount, salesmanId) => {
         if (!window.confirm(`Verify payment of ₹${amount}? This will update the salesman's outstanding balance.`)) return;
 
-        playSound('success');
         setApprovingId(pId); // Start animation
 
         try {
@@ -439,13 +453,15 @@ export default function AdminDashboard({ adminName }) {
             const payRef = doc(db, "pending_collections", pId);
             await updateDoc(payRef, {
                 status: 'Approved',
-                approved_at: serverTimestamp()
+                approved_at: serverTimestamp(),
+                approved_by: adminName || 'Admin'
             });
 
-            console.log(`✅ Payment ${pId} approved. Balance will be updated in Live View.`);
-            fetchData(); // Refresh UI
+            playSound('success');
+            console.log(`✅ Payment ${pId} approved for ${salesmanId}.`);
         } catch (err) {
             console.error("❌ Approval Error:", err);
+            playSound('error');
             alert("Failed to approve: " + err.message);
         } finally {
             setApprovingId(null);
@@ -453,20 +469,24 @@ export default function AdminDashboard({ adminName }) {
     };
 
     const handleRejectPayment = async (pId) => {
-        if (!window.confirm("Reject and DELETE this payment request?")) return;
+        if (!window.confirm("Reject this payment? It will be removed from pending collections.")) return;
+
         try {
-            playSound('error');
-            await deleteDoc(doc(db, "pending_collections", pId));
-            console.log(`✅ Payment ${pId} deleted.`);
-            fetchData();
+            const payRef = doc(db, "pending_collections", pId);
+            await updateDoc(payRef, {
+                status: 'Rejected',
+                rejected_at: serverTimestamp()
+            });
+            playSound('pop');
+            console.log(`❌ Payment ${pId} rejected.`);
         } catch (err) {
-            console.error("❌ Delete Error:", err);
-            alert("Failed to delete: " + err.message);
+            console.error("❌ Reject Error:", err);
+            playSound('error');
+            alert("Failed to reject: " + err.message);
         }
     };
 
     const handleApprovePhoneUpdate = async (update) => {
-        if (!window.confirm(`Approve phone number change for ${update.party}?\nOld: ${update.old_value}\nNew: ${update.new_value}`)) return;
 
         playSound('success');
         setApprovingId(update.id);
@@ -478,57 +498,76 @@ export default function AdminDashboard({ adminName }) {
             const partyKey = sanitizeKey(update.party);
             await setDoc(doc(db, "party_directory", partyKey), {
                 phone: update.new_value,
-                updatedBy: update.salesman_id,
+                updatedBy: update.salesman_id || update.salesman_name || 'Admin',
                 updatedAt: serverTimestamp()
             }, { merge: true });
 
             // 2. Update outstanding_data (all bills for this party)
-            const docRef = doc(db, "outstanding_data", update.salesman_id);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                const bills = docSnap.data().bills || [];
-                const updatedBills = bills.map(b => {
-                    if (String(b.Party) === String(update.party)) {
-                        return { ...b, Phone: update.new_value };
+            // Use salesman_id, fallback to salesman_name formatted
+            let sId = update.salesman_id;
+            if (!sId && update.salesman_name) {
+                sId = update.salesman_name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            }
+
+            if (sId) {
+                const docRef = doc(db, "outstanding_data", sId);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const bills = docSnap.data().bills || [];
+                    let isModified = false;
+                    const updatedBills = bills.map(b => {
+                        if (String(b.Party) === String(update.party)) {
+                            isModified = true;
+                            return { ...b, Phone: update.new_value };
+                        }
+                        return b;
+                    });
+                    if (isModified) {
+                        await updateDoc(docRef, { bills: updatedBills });
                     }
-                    return b;
-                });
-                await updateDoc(docRef, { bills: updatedBills });
+                } else {
+                    console.warn(`[AdminDashboard] No outstanding_data found for salesman ${sId}`);
+                }
+            } else {
+                console.warn(`[AdminDashboard] Missing salesman_id for update ${update.id}`);
             }
 
             // 3. Delete the request
             await deleteDoc(doc(db, "pending_updates", update.id));
 
+            playSound('success');
             console.log(`✅ Phone update for ${update.party} approved.`);
         } catch (err) {
             console.error("❌ Phone Approval Error:", err);
-            alert("Failed to approve: " + err.message);
+            playSound('error');
+            alert("Failed to approve phone update: " + err.message);
         } finally {
             setApprovingId(null);
         }
     };
 
     const handleRejectPhoneUpdate = async (updateId) => {
-        if (!window.confirm("Reject and DELETE this phone update request?")) return;
         try {
-            playSound('error');
+            playSound('pop');
             await deleteDoc(doc(db, "pending_updates", updateId));
-            console.log(`✅ Phone update ${updateId} deleted.`);
+            console.log(`✅ Phone update ${updateId} rejected and deleted.`);
         } catch (err) {
-            console.error("❌ Delete Error:", err);
-            alert("Failed to delete: " + err.message);
+            console.error("❌ Phone Reject Error:", err);
+            playSound('error');
+            alert("Failed to reject phone update: " + err.message);
         }
     };
 
     const handleMarkReflected = async (pId, amount) => {
-        if (!window.confirm(`Has this payment of ₹${amount} been entered into Tally? This will remove it from the cloud cloud.`)) return;
+        if (!window.confirm(`Has this payment of ₹${amount} been entered into Tally? This will remove it from the cloud.`)) return;
         try {
             await deleteDoc(doc(db, "pending_collections", pId));
-            console.log(`✅ Payment ${pId} marked as reflected and deleted from cloud.`);
-            fetchData();
+            playSound('success');
+            console.log(`✅ Payment ${pId} marked as reflected and removed from cloud.`);
         } catch (err) {
-            console.error("❌ Tally Sync Error:", err);
-            alert("Failed to update: " + err.message);
+            console.error("❌ Reflection Error:", err);
+            playSound('error');
+            alert("Failed to mark reflected: " + err.message);
         }
     };
 
@@ -844,6 +883,7 @@ export default function AdminDashboard({ adminName }) {
                                         approvingId={approvingId}
                                         playSound={playSound}
                                     />}
+                                    {view === 'REMINDERS' && <RemindersView salesmenData={salesmenData} onBack={() => setView('DASHBOARD')} masterPlans={masterPlans} allPayments={allPayments} />}
                                     {view === 'LEADERBOARD' && (
                                         <div className="space-y-6 animate-fade-in pb-20">
                                             <div className="flex items-center gap-4 mb-8">
@@ -953,7 +993,7 @@ export default function AdminDashboard({ adminName }) {
             {isDataManagerOpen && (
                 <DataManagerModal isOpen={isDataManagerOpen} onClose={() => setIsDataManagerOpen(false)} />
             )}
-            <ChequeDetailsModal isOpen={isChequeModalOpen} onClose={() => setIsChequeModalOpen(false)} allPayments={allPayments} />
+            <ChequeDetailsModal isOpen={isChequeModalOpen} onClose={() => setIsChequeModalOpen(false)} allPayments={allPayments} viewMode={viewMode} />
         </>
     );
 }
@@ -987,9 +1027,10 @@ function CollectionModal({ isOpen, onClose, allPayments, total }) {
     );
 }
 
-function ChequeDetailsModal({ isOpen, onClose, allPayments }) {
+function ChequeDetailsModal({ isOpen, onClose, allPayments, viewMode }) {
     if (!isOpen) return null;
 
+    const isWeb = viewMode === 'web';
     const cheques = allPayments.filter(p => (p.payment_type || '').toLowerCase() === 'cheque');
     const totalChequeAmount = cheques.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
@@ -1005,66 +1046,80 @@ function ChequeDetailsModal({ isOpen, onClose, allPayments }) {
         return acc;
     }, {});
 
+    const sortedSalesmen = Object.keys(grouped).sort();
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" onClick={onClose}></div>
-            <div className="bg-slate-900 border border-white/10 w-full max-w-4xl rounded-[2.5rem] overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-300">
-                <div className="p-6 sm:p-8 border-b border-white/5 flex justify-between items-center bg-purple-900/10">
+            <div className={`bg-slate-900 border border-white/10 w-full rounded-[2.5rem] overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-300 ${isWeb ? 'max-w-6xl h-[85vh] flex flex-col' : 'max-w-4xl'}`}>
+                {/* Header */}
+                <div className={`p-6 sm:p-8 border-b border-white/5 flex justify-between items-center ${isWeb ? 'bg-gradient-to-r from-purple-900/20 via-slate-900 to-slate-900' : 'bg-purple-900/10'}`}>
                     <div>
-                        <h2 className="text-xl sm:text-2xl font-black text-white uppercase italic tracking-wider">Cheque Inventory</h2>
-                        <p className="text-[10px] font-bold text-purple-400 mt-1 uppercase tracking-[0.2em]">Total Value: ₹{totalChequeAmount.toLocaleString('en-IN')}</p>
+                        <h2 className={`${isWeb ? 'text-3xl lg:text-4xl' : 'text-xl sm:text-2xl'} font-black text-white uppercase italic tracking-wider`}>Cheque Inventory</h2>
+                        <p className={`${isWeb ? 'text-xs lg:text-sm' : 'text-[10px]'} font-bold text-purple-400 mt-1 uppercase tracking-[0.2em]`}>Total Value: ₹{totalChequeAmount.toLocaleString('en-IN')}</p>
                     </div>
-                    <button onClick={onClose} className="p-3 bg-white/5 rounded-2xl text-slate-500 hover:text-white transition-all active:scale-95 border border-white/5">
-                        <X size={20} />
+                    <button onClick={onClose} className="p-3 bg-white/5 rounded-2xl text-slate-500 hover:text-white transition-all active:scale-95 border border-white/5 hover:bg-white/10">
+                        <X size={isWeb ? 24 : 20} />
                     </button>
                 </div>
 
-                <div className="p-4 sm:p-8 max-h-[70vh] overflow-y-auto custom-scrollbar space-y-8">
-                    {Object.keys(grouped).length === 0 ? (
-                        <div className="py-20 text-center">
+                {/* Content */}
+                <div className={`p-4 sm:p-8 overflow-y-auto custom-scrollbar ${isWeb ? 'flex-1 grid grid-cols-1 lg:grid-cols-3 gap-8 items-start' : 'max-h-[70vh] space-y-8'}`}>
+                    {sortedSalesmen.length === 0 ? (
+                        <div className={`py-20 text-center ${isWeb ? 'col-span-3' : ''}`}>
                             <p className="text-slate-500 font-bold uppercase tracking-widest italic">No cheques recorded today</p>
                         </div>
                     ) : (
-                        Object.entries(grouped).map(([salesman, routes]) => (
-                            <div key={salesman} className="space-y-4">
+                        sortedSalesmen.map((salesman) => (
+                            <div key={salesman} className={`${isWeb ? 'space-y-6 lg:border-r lg:border-white/5 lg:pr-8 last:border-0' : 'space-y-4'}`}>
                                 <div className="flex items-center gap-3 px-2">
-                                    <div className="h-px flex-1 bg-white/5"></div>
-                                    <h3 className="text-xs font-black text-purple-500 uppercase tracking-[0.3em]">{salesman}</h3>
+                                    <div className="h-px flex-1 bg-white/5 lg:hidden"></div>
+                                    <h3 className={`${isWeb ? 'text-sm' : 'text-xs'} font-black text-purple-500 uppercase tracking-[0.3em] flex items-center gap-2`}>
+                                        <Users size={14} className="opacity-50" />
+                                        {salesman}
+                                    </h3>
                                     <div className="h-px flex-1 bg-white/5"></div>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {Object.entries(routes).map(([route, payments]) => (
-                                        <div key={route} className="bg-slate-950/40 border border-white/5 rounded-3xl p-5 hover:border-purple-500/20 transition-all group">
+                                <div className="space-y-6">
+                                    {Object.entries(grouped[salesman]).map(([route, payments]) => (
+                                        <div key={route} className={`bg-slate-950/40 border border-white/5 rounded-3xl p-5 hover:border-purple-500/20 transition-all group ${isWeb ? 'shadow-lg hover:shadow-purple-500/5' : ''}`}>
                                             <div className="flex justify-between items-center mb-4">
-                                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{route}</h4>
+                                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                                    <MapPin size={10} className="text-purple-500/50" />
+                                                    {route}
+                                                </h4>
                                                 <span className="text-[10px] font-black text-white px-2 py-0.5 bg-purple-500/20 rounded-full border border-purple-500/30">
-                                                    {payments.length} CHEQUES
+                                                    {payments.length}
                                                 </span>
                                             </div>
 
                                             <div className="space-y-3">
                                                 {payments.map((p, idx) => (
-                                                    <div key={idx} className="flex justify-between items-start gap-4 p-3 bg-white/5 rounded-2xl group-hover:bg-white/[0.07] transition-all">
+                                                    <div key={idx} className="flex justify-between items-start gap-4 p-3 bg-white/5 rounded-2xl group-hover:bg-white/[0.07] transition-all border border-transparent hover:border-white/5">
                                                         <div className="flex-1 min-w-0">
-                                                            <p className="text-[11px] font-black text-slate-100 truncate uppercase">{p.party || 'Unknown Shop'}</p>
-                                                            <p className="text-[9px] font-bold text-slate-500 mt-0.5">
-                                                                Bill Date: <span className="text-slate-300 ml-1">{p.bill_date || 'N/A'}</span>
-                                                                <span className="mx-2 opacity-30">|</span>
-                                                                Bill No: <span className="text-slate-300 ml-1">{p.bill_no || 'N/A'}</span>
-                                                            </p>
-                                                            <p className="text-[8px] font-medium text-slate-600 mt-0.5 italic">
-                                                                Collection: {p.timestamp?.toDate ? p.timestamp.toDate().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                                                            </p>
-                                                            {p.cheque_date && (
-                                                                <p className="text-[9px] font-bold text-slate-400 mt-0.5">
-                                                                    Cheque Due Date: <span className="text-amber-400 ml-1">{new Date(p.cheque_date).toLocaleDateString('en-IN')}</span>
+                                                            <p className="text-[11px] font-black text-slate-100 truncate uppercase tracking-tight">{p.party || 'Unknown Shop'}</p>
+                                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+                                                                <p className="text-[9px] font-bold text-slate-500">
+                                                                    Bill: <span className="text-slate-300">{p.bill_no || 'N/A'}</span>
                                                                 </p>
+                                                                <span className="text-slate-700 text-[8px]">●</span>
+                                                                <p className="text-[9px] font-bold text-slate-500">
+                                                                    Date: <span className="text-slate-300">{p.bill_date || 'N/A'}</span>
+                                                                </p>
+                                                            </div>
+                                                            {p.cheque_date && (
+                                                                <div className="flex items-center gap-1.5 mt-1.5 p-1 px-2 bg-amber-500/5 rounded-lg border border-amber-500/10 w-fit">
+                                                                    <Clock size={8} className="text-amber-500" />
+                                                                    <p className="text-[8px] font-black text-amber-500 uppercase tracking-tighter">
+                                                                        DUE: {new Date(p.cheque_date).toLocaleDateString('en-IN')}
+                                                                    </p>
+                                                                </div>
                                                             )}
                                                         </div>
                                                         <div className="text-right">
                                                             <p className="text-sm font-black text-white tracking-tight">₹{Number(p.amount || 0).toLocaleString('en-IN')}</p>
-                                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase ${p.status === 'Approved' ? 'text-emerald-400 bg-emerald-400/10' : 'text-amber-400 bg-amber-400/10'}`}>
+                                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase border ${p.status === 'Approved' ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' : 'text-amber-400 bg-amber-400/10 border-amber-400/20'}`}>
                                                                 {p.status}
                                                             </span>
                                                         </div>
@@ -1074,7 +1129,7 @@ function ChequeDetailsModal({ isOpen, onClose, allPayments }) {
 
                                             <div className="mt-4 pt-3 border-t border-white/5 flex justify-between items-center">
                                                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Route Total</span>
-                                                <span className="text-xs font-black text-purple-400 tracking-wider">
+                                                <span className="text-sm font-black text-purple-400 tracking-wider font-mono">
                                                     ₹{payments.reduce((sum, p) => sum + Number(p.amount || 0), 0).toLocaleString('en-IN')}
                                                 </span>
                                             </div>
@@ -1153,14 +1208,14 @@ function OutstandingModal({ isOpen, onClose, salesmenData, total, todayCollectio
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" onClick={onClose}></div>
-            <div className={`bg-slate-900 border ${selectedCompany ? activeColor.border : 'border-white/10'} w-full max-w-2xl rounded-3xl sm:rounded-[3rem] overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-300 transition-colors duration-500`}>
+            <div className={`bg-slate-900 border ${selectedCompany ? activeColor.border : 'border-white/10'} w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-300 transition-colors duration-500`}>
 
                 {/* Dynamic Background Glow */}
                 {selectedCompany && (
                     <div className={`absolute inset-0 bg-gradient-to-b ${activeColor.gradient} opacity-20 pointer-events-none`}></div>
                 )}
 
-                <div className={`p-5 sm:p-8 border-b ${selectedCompany ? activeColor.border : 'border-white/5'} flex justify-between items-center bg-indigo-900/10 relative z-10`}>
+                <div className={`px-5 py-4 border-b ${selectedCompany ? activeColor.border : 'border-white/5'} flex justify-between items-center bg-indigo-900/10 relative z-10`}>
                     <div className="flex items-center gap-4">
                         {selectedCompany && (
                             <button
@@ -1174,10 +1229,10 @@ function OutstandingModal({ isOpen, onClose, salesmenData, total, todayCollectio
                             {selectedCompany ? selectedCompany : 'Liability Breakdown'}
                         </h2>
                     </div>
-                    <button onClick={onClose} className="p-3 bg-white/5 rounded-2xl text-slate-500 hover:text-white transition-all">✕</button>
+                    <button onClick={onClose} className="p-2.5 bg-white/5 rounded-xl text-slate-500 hover:text-white transition-all border border-white/5 active:scale-95">✕</button>
                 </div>
 
-                <div className="p-5 sm:p-8 max-h-[75vh] overflow-y-auto custom-scrollbar italic text-center">
+                <div className="p-5 sm:p-6 max-h-[75vh] overflow-y-auto custom-scrollbar italic text-center">
 
                     {!selectedCompany ? (
                         /* COMPANY VIEW */
@@ -1188,7 +1243,7 @@ function OutstandingModal({ isOpen, onClose, salesmenData, total, todayCollectio
                                     <div
                                         key={idx}
                                         onClick={() => setSelectedCompany(c.name)}
-                                        className="flex items-center justify-between p-4 sm:p-5 bg-white/[0.02] rounded-2xl sm:rounded-[2rem] border border-white/5 hover:bg-white/[0.04] hover:border-blue-500/30 cursor-pointer transition-all group active:scale-[0.98]"
+                                        className="flex items-center justify-between p-4 bg-white/[0.02] rounded-2xl border border-white/5 hover:bg-white/[0.04] hover:border-blue-500/30 cursor-pointer transition-all group active:scale-[0.98]"
                                     >
                                         <div className="flex items-center gap-5 text-left">
                                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg border border-white/10 shadow-inner
@@ -1226,7 +1281,7 @@ function OutstandingModal({ isOpen, onClose, salesmenData, total, todayCollectio
                                         return (
                                             <div
                                                 key={idx}
-                                                className={`flex flex-col p-4 rounded-3xl border transition-all hover:scale-[1.01] ${activeColor.bg} ${activeColor.border} ${activeColor.glow} gap-3`}
+                                                className={`flex flex-col p-4 rounded-2xl border transition-all hover:scale-[1.01] ${activeColor.bg} ${activeColor.border} ${activeColor.glow} gap-3`}
                                             >
                                                 <div className="flex items-center justify-between">
                                                     <div className="flex items-center gap-3">
@@ -1345,11 +1400,11 @@ function TodayOutstandingModal({ isOpen, onClose, salesmenData, todayCollections
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" onClick={onClose}></div>
-            <div className="bg-slate-900 border border-purple-500/20 w-full max-w-2xl rounded-3xl sm:rounded-[3rem] overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-300 transition-colors duration-500">
+            <div className="bg-slate-900 border border-purple-500/20 w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-300 transition-colors duration-500">
 
                 <div className="absolute inset-0 bg-gradient-to-b from-purple-600/10 to-transparent opacity-20 pointer-events-none"></div>
 
-                <div className="p-5 sm:p-8 border-b border-purple-500/20 flex justify-between items-center bg-indigo-900/10 relative z-10">
+                <div className="px-5 py-4 border-b border-purple-500/20 flex justify-between items-center bg-indigo-900/10 relative z-10">
                     <div>
                         <h2 className="text-xl sm:text-2xl font-black uppercase italic text-purple-400">
                             Today's Route Balances
@@ -1358,10 +1413,10 @@ function TodayOutstandingModal({ isOpen, onClose, salesmenData, todayCollections
                             Collected: ₹{totalCollected.toLocaleString('en-IN')} | Pending: ₹{totalPending.toLocaleString('en-IN')}
                         </p>
                     </div>
-                    <button onClick={onClose} className="p-3 bg-white/5 rounded-2xl text-slate-500 hover:text-white transition-all border border-white/5 active:scale-95">✕</button>
+                    <button onClick={onClose} className="p-2.5 bg-white/5 rounded-xl text-slate-500 hover:text-white transition-all border border-white/5 active:scale-95">✕</button>
                 </div>
 
-                <div className="p-5 sm:p-8 max-h-[75vh] overflow-y-auto custom-scrollbar flex flex-col gap-4">
+                <div className="p-5 sm:p-6 max-h-[75vh] overflow-y-auto custom-scrollbar flex flex-col gap-4">
                     {activeSalesmen.length === 0 ? (
                         <div className="py-12 text-center text-slate-500 font-bold uppercase tracking-widest text-xs">
                             No Active Balances Today
@@ -1370,7 +1425,7 @@ function TodayOutstandingModal({ isOpen, onClose, salesmenData, todayCollections
                         activeSalesmen.map((s, idx) => {
                             const percentage = s.liability > 0 ? Math.min(Math.round((s.collected / s.liability) * 100), 100) : 0;
                             return (
-                                <div key={idx} className="flex flex-col p-4 rounded-3xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-500/30 transition-all gap-3">
+                                <div key={idx} className="flex flex-col p-4 rounded-2xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-500/30 transition-all gap-3">
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <h4 className="text-sm font-black text-white uppercase tracking-wide">{s.name}</h4>
@@ -1680,7 +1735,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
     }, [dashboardMenu]);
 
     return (
-        <div className={`animate-fade-in ${dashboardMenu === 'MAIN' ? 'h-full flex flex-col justify-center pb-10 sm:pb-20' : 'space-y-6'}`}>
+        <div className={`animate-fade-in ${dashboardMenu === 'MAIN' ? 'h-full flex flex-col justify-center pb-10 sm:pb-20' : 'space-y-6 max-w-2xl mx-auto'}`}>
             {dashboardMenu === 'MAIN' && (
                 <>
                     {/* PENDING VERIFICATION BADGE */}
@@ -1968,7 +2023,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
             )}
 
             {dashboardMenu === 'MASTER' && (
-                <div className="space-y-4 animate-in slide-in-from-right-8 duration-300">
+                <div className="max-w-2xl mx-auto space-y-4 animate-in slide-in-from-right-8 duration-300">
                     <button
                         onClick={() => { playSound('pop'); setDashboardMenu('MAIN'); }}
                         className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-blue-500/30 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] text-blue-400 hover:text-white hover:from-blue-600/40 hover:to-indigo-600/40 hover:border-blue-400/50 transition-all active:scale-95 mb-4 shadow-[0_0_20px_rgba(37,99,235,0.1)] backdrop-blur-xl group"
@@ -1978,7 +2033,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
 
                     <button
                         onClick={() => { playSound('click'); setIsDataManagerOpen(true); }}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2rem] hover:border-violet-500/30 transition-all active:scale-95"
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-3.5 sm:p-4 rounded-2xl hover:border-violet-500/30 transition-all active:scale-95"
                     >
                         <div className="flex items-center justify-between relative z-10">
                             <div className="flex items-center gap-4">
@@ -1996,7 +2051,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
 
                     <button
                         onClick={() => { playSound('click'); setView('ROUTE_PLAN'); }}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2rem] hover:border-blue-500/30 transition-all active:scale-95"
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-4 sm:p-5 rounded-3xl hover:border-blue-500/30 transition-all active:scale-95"
                     >
                         <div className="flex items-center justify-between relative z-10">
                             <div className="flex items-center gap-4">
@@ -2014,7 +2069,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
 
                     <button
                         onClick={() => { playSound('click'); setView('REMINDERS'); }}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2rem] hover:border-emerald-500/30 transition-all active:scale-95"
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-4 sm:p-5 rounded-3xl hover:border-emerald-500/30 transition-all active:scale-95"
                     >
                         <div className="flex items-center justify-between relative z-10">
                             <div className="flex items-center gap-4">
@@ -2032,7 +2087,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
 
                     <button
                         onClick={() => { playSound('click'); setView('TARGETS'); }}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2rem] hover:border-amber-500/30 transition-all active:scale-95"
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-4 sm:p-5 rounded-3xl hover:border-amber-500/30 transition-all active:scale-95"
                     >
                         <div className="flex items-center justify-between relative z-10">
                             <div className="flex items-center gap-4">
@@ -2050,7 +2105,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
 
                     <button
                         onClick={() => { playSound('click'); setView('PENDING_APPROVALS'); }}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2rem] hover:border-orange-500/30 transition-all active:scale-95"
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-4 sm:p-5 rounded-3xl hover:border-orange-500/30 transition-all active:scale-95"
                     >
                         <div className="flex items-center justify-between relative z-10">
                             <div className="flex items-center gap-4">
@@ -2069,7 +2124,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
             )}
 
             {dashboardMenu === 'REPORTS' && (
-                <div className="space-y-4 animate-in slide-in-from-right-8 duration-300">
+                <div className="max-w-2xl mx-auto space-y-4 animate-in slide-in-from-right-8 duration-300">
                     <button
                         onClick={() => { playSound('pop'); setDashboardMenu('MAIN'); }}
                         className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-blue-500/30 rounded-2xl text-[10px) font-black uppercase tracking-[0.2em] text-blue-400 hover:text-white hover:from-blue-600/40 hover:to-indigo-600/40 hover:border-blue-400/50 transition-all active:scale-95 mb-4 shadow-[0_0_20px_rgba(37,99,235,0.1)] backdrop-blur-xl group"
@@ -2079,7 +2134,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
 
                     <button
                         onClick={() => { playSound('click'); setIsRouteExplorerOpen(true); }}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2rem] hover:border-indigo-500/30 transition-all active:scale-95"
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-3.5 sm:p-4 rounded-2xl hover:border-indigo-500/30 transition-all active:scale-95"
                     >
                         <div className="flex items-center justify-between relative z-10">
                             <div className="flex items-center gap-4">
@@ -2097,7 +2152,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
 
                     <button
                         onClick={() => setView('SUMMARY_LIST')}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2rem] hover:border-cyan-500/30 transition-all active:scale-95"
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-4 sm:p-5 rounded-3xl hover:border-cyan-500/30 transition-all active:scale-95"
                     >
                         <div className="flex items-center justify-between relative z-10">
                             <div className="flex items-center gap-4">
@@ -2115,7 +2170,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
 
                     <button
                         onClick={() => setView('LEADERBOARD')}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2rem] hover:border-amber-500/30 transition-all active:scale-95"
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-4 sm:p-5 rounded-3xl hover:border-amber-500/30 transition-all active:scale-95"
                     >
                         <div className="flex items-center justify-between relative z-10">
                             <div className="flex items-center gap-4">
@@ -2133,7 +2188,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
 
                     <button
                         onClick={() => setView('PERFORMANCE')}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-6 rounded-[2rem] hover:border-blue-500/30 transition-all active:scale-95"
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-4 sm:p-5 rounded-3xl hover:border-blue-500/30 transition-all active:scale-95"
                     >
                         <div className="flex items-center justify-between relative z-10">
                             <div className="flex items-center gap-4">
@@ -2188,22 +2243,22 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
         }
 
         return (
-            <div className="space-y-6 animate-fade-in pb-20">
-                <div className="flex items-center gap-4 mb-8">
-                    <button onClick={() => { playSound('pop'); setSelectedSalesmanId(null); }} className="p-3 bg-white/5 rounded-2xl border border-white/10 text-slate-300 hover:bg-white/10 transition-all">
-                        <ArrowLeft size={24} />
+            <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
+                <div className="flex items-center gap-4 mb-6">
+                    <button onClick={() => { playSound('pop'); setSelectedSalesmanId(null); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 active:scale-95 transition-all shadow-lg backdrop-blur-md">
+                        <ArrowLeft size={20} />
                     </button>
                     <div>
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Viewing Collections for</p>
-                        <h3 className="text-xl font-black text-white uppercase tracking-tight">{sid}</h3>
+                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-0.5">Viewing Items for</p>
+                        <h3 className="text-lg font-black text-white uppercase tracking-tight">{sid}</h3>
                     </div>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-2">
                     {group.items.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).map(p => (
-                        <div key={p.id} className={`bg-slate-900/40 backdrop-blur-3xl p-5 sm:p-6 rounded-3xl sm:rounded-[2.5rem] border border-white/10 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-6 group shadow-xl relative overflow-hidden transition-all duration-300 ${approvingId === p.id ? 'animate-approve' : ''}`}>
+                        <div key={p.id} className={`bg-slate-900/40 backdrop-blur-3xl p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 group shadow-lg relative overflow-hidden transition-all duration-300 ${approvingId === p.id ? 'animate-approve' : ''}`}>
                             <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2 mb-2 text-slate-500 font-bold uppercase tracking-widest text-[9px]">
-                                    <span className="bg-white/5 px-2 py-0.5 rounded-md">{formatDateShort(p.timestamp)}</span>
+                                <div className="flex flex-wrap items-center gap-2 mb-1.5 text-slate-500 font-bold uppercase tracking-widest text-[8px]">
+                                    <span className="bg-white/5 px-1.5 py-0.5 rounded-md">{formatDateShort(p.timestamp)}</span>
                                     <div className="w-1 h-1 rounded-full bg-slate-800"></div>
                                     <span className={isApprovedList ? 'line-through' : ''}>Bill: {p.bill_no || 'N/A'}</span>
                                     {p.route && (
@@ -2213,7 +2268,7 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
                                         </>
                                     )}
                                 </div>
-                                <p className={`font-black text-lg sm:text-xl tracking-tight leading-tight uppercase mb-3 ${isApprovedList ? 'text-slate-400 line-through' : 'text-slate-100'}`}>
+                                <p className={`font-black text-base sm:text-lg tracking-tight leading-tight uppercase mb-2 ${isApprovedList ? 'text-slate-400 line-through' : 'text-slate-100'}`}>
                                     {p.party}
                                 </p>
                                 <div className="flex items-center gap-3">
@@ -2221,27 +2276,27 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
                                 </div>
                             </div>
 
-                            <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-4 border-t sm:border-t-0 border-white/5 pt-4 sm:pt-0 shrink-0">
+                            <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 border-t sm:border-t-0 border-white/5 pt-3 sm:pt-0 shrink-0">
                                 <div className="text-right">
-                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 sm:hidden">Amount</p>
-                                    <p className={`text-2xl font-black tracking-tighter italic ${isApprovedList ? 'text-slate-500' : 'text-white'}`}>
+                                    <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5 sm:hidden">Amount</p>
+                                    <p className={`text-xl font-black tracking-tighter italic ${isApprovedList ? 'text-slate-500' : 'text-white'}`}>
                                         ₹{Number(p.amount || 0).toLocaleString('en-IN')}
                                     </p>
                                 </div>
 
                                 {isApprovedList ? (
-                                    <button onClick={() => handleMarkReflected(p.id, p.amount)} className="bg-white/5 text-slate-400 border border-white/10 px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500 hover:text-white transition-all">Mark in Tally</button>
+                                    <button onClick={() => handleMarkReflected(p.id, p.amount)} className="bg-white/5 text-slate-400 border border-white/10 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500 hover:text-white transition-all active:scale-95">Mark in Tally</button>
                                 ) : (
-                                    <div className="flex gap-2.5">
+                                    <div className="flex gap-2">
                                         <button
                                             onClick={() => handleRejectPayment(p.id)}
-                                            className="bg-red-500/10 text-red-400 border border-red-500/20 px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all active:scale-95"
+                                            className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all active:scale-95"
                                         >
                                             Reject
                                         </button>
                                         <button
                                             onClick={() => handleApprovePayment(p.id, p.amount, group.name)}
-                                            className="bg-orange-500 text-white px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+                                            className="bg-orange-500 text-white px-5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
                                         >
                                             Approve
                                         </button>
@@ -2256,13 +2311,13 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
     }
 
     return (
-        <div className="space-y-6 animate-fade-in pb-20">
-            <div className="flex items-center justify-between gap-4 mb-2">
-                <div className="flex items-center gap-4">
-                    <button onClick={() => setView('DASHBOARD')} className="p-3 bg-white/5 rounded-2xl border border-white/10 text-slate-300 hover:bg-white/10 transition-all">
-                        <ArrowLeft size={24} />
-                    </button>
-                    <h3 className="text-sm font-black text-orange-500 uppercase tracking-[0.3em] text-center w-full">Approvals & Verification</h3>
+        <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
+            <div className="flex items-center gap-4 mb-2">
+                <button onClick={() => setView('DASHBOARD')} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 transition-all shadow-lg active:scale-95">
+                    <ArrowLeft size={20} />
+                </button>
+                <div className="flex-1 text-center pr-10">
+                    <h3 className="text-xs font-black text-orange-500 uppercase tracking-[0.4em]">Approvals & Verification</h3>
                 </div>
             </div>
 
@@ -2270,44 +2325,48 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
                 {/* Profile Verifications Section */}
                 {pendingUpdates && pendingUpdates.length > 0 && (
                     <section>
-                        <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-4 text-center">Mobile Number Verifications</h4>
-                        <div className="space-y-4">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="h-px flex-1 bg-white/5"></div>
+                            <h4 className="text-[8px] font-black text-blue-500/60 uppercase tracking-[0.3em]">Mobile Number Verifications</h4>
+                            <div className="h-px flex-1 bg-white/5"></div>
+                        </div>
+                        <div className="space-y-3">
                             {pendingUpdates.map(update => (
-                                <div key={update.id} className={`bg-slate-900/40 backdrop-blur-3xl p-5 sm:p-6 rounded-3xl sm:rounded-[2.5rem] border border-white/10 flex flex-col gap-4 shadow-xl relative overflow-hidden transition-all duration-300 ${approvingId === update.id ? 'animate-approve' : ''}`}>
+                                <div key={update.id} className={`bg-slate-900/40 backdrop-blur-3xl p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10 flex flex-col gap-3 shadow-lg relative overflow-hidden transition-all duration-300 ${approvingId === update.id ? 'animate-approve' : ''}`}>
                                     <div className="flex justify-between items-start">
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest truncate">{update.salesman_name || update.salesman_id}</p>
-                                                <div className="px-1.5 py-0.5 bg-blue-500/10 rounded border border-blue-500/20 text-[7px] font-black text-blue-400 uppercase tracking-widest">REQ</div>
+                                                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest truncate">{update.salesman_name || update.salesman_id}</p>
+                                                <div className="px-1.5 py-0.5 bg-blue-500/10 rounded border border-blue-500/20 text-[6px] font-black text-blue-400 uppercase tracking-widest">REQ</div>
                                             </div>
-                                            <h4 className="font-black text-lg text-white uppercase tracking-tight truncate">{update.party}</h4>
+                                            <h4 className="font-black text-base text-white uppercase tracking-tight truncate">{update.party}</h4>
                                         </div>
-                                        <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 shrink-0">
-                                            <Smartphone size={20} className="text-blue-400" />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
-                                            <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">Current Number</p>
-                                            <p className="text-sm font-bold text-slate-400 line-through truncate">{update.old_value || '0000000000'}</p>
-                                        </div>
-                                        <div className="bg-blue-500/5 p-3 rounded-2xl border border-blue-500/10">
-                                            <p className="text-[7px] font-black text-blue-400 uppercase tracking-widest mb-1">Requested Number</p>
-                                            <p className="text-sm font-black text-white italic truncate">{update.new_value}</p>
+                                        <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 shrink-0">
+                                            <Smartphone size={18} className="text-blue-400" />
                                         </div>
                                     </div>
 
-                                    <div className="flex gap-2.5">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
+                                            <p className="text-[6px] font-black text-slate-500 uppercase tracking-widest mb-1">Current</p>
+                                            <p className="text-xs font-bold text-slate-400 line-through truncate">{update.old_value || '0000000000'}</p>
+                                        </div>
+                                        <div className="bg-blue-500/5 p-2.5 rounded-xl border border-blue-500/10">
+                                            <p className="text-[6px] font-black text-blue-400 uppercase tracking-widest mb-1">Requested</p>
+                                            <p className="text-xs font-black text-white italic truncate">{update.new_value}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-2">
                                         <button
                                             onClick={() => handleRejectPhoneUpdate(update.id)}
-                                            className="flex-1 bg-red-500/10 text-red-400 border border-red-500/20 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all active:scale-95"
+                                            className="flex-1 bg-red-500/10 text-red-400 border border-red-500/20 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all active:scale-95"
                                         >
                                             Reject
                                         </button>
                                         <button
                                             onClick={() => handleApprovePhoneUpdate(update)}
-                                            className="flex-1 bg-blue-500 text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95"
+                                            className="flex-1 bg-blue-500 text-white py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95"
                                         >
                                             Approve
                                         </button>
@@ -2319,20 +2378,24 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
                 )}
 
                 <section>
-                    <h4 className="text-[10px] font-black text-orange-400 uppercase tracking-[0.2em] mb-4 text-center">Payment Approvals</h4>
-                    <div className="space-y-4">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="h-px flex-1 bg-white/5"></div>
+                        <h4 className="text-[7px] font-black text-orange-500/60 uppercase tracking-[0.3em]">Payment Approvals</h4>
+                        <div className="h-px flex-1 bg-white/5"></div>
+                    </div>
+                    <div className="space-y-2">
                         {Object.values(groupPending).length > 0 ? (
                             Object.values(groupPending).sort((a, b) => b.total - a.total).map(group => (
-                                <button key={group.name} onClick={() => { playSound('click'); setSelectedSalesmanId(group.name); }} className="w-full bg-slate-900/40 backdrop-blur-3xl p-5 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-white/10 flex justify-between items-center group shadow-xl hover:border-orange-500/20 transition-all">
+                                <button key={group.name} onClick={() => { playSound('click'); setSelectedSalesmanId(group.name); }} className="w-full bg-slate-900/40 backdrop-blur-3xl p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10 flex justify-between items-center group shadow-lg hover:border-orange-500/30 hover:bg-white/[0.05] transition-all active:scale-[0.99]">
                                     <div className="flex items-center gap-4 text-left">
-                                        <div className="w-12 h-12 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-400 border border-orange-500/20"><Users size={20} /></div>
+                                        <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-400 border border-orange-500/20 group-hover:scale-110 transition-transform"><Users size={18} /></div>
                                         <div>
-                                            <p className="text-slate-100 font-black text-base tracking-tight leading-tight uppercase">{group.name}</p>
-                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">{group.items.length} Pending</p>
+                                            <p className="text-slate-100 font-black text-sm tracking-tight leading-tight uppercase group-hover:text-orange-400 transition-colors">{group.name}</p>
+                                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">{group.items.length} Pending Collections</p>
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-xl font-black text-white tracking-tighter italic">₹{group.total.toLocaleString('en-IN')}</p>
+                                        <p className="text-lg font-black text-white tracking-tighter italic group-hover:scale-110 origin-right transition-transform">₹{group.total.toLocaleString('en-IN')}</p>
                                     </div>
                                 </button>
                             ))
@@ -2346,19 +2409,23 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
 
                 {Object.values(groupApproved).length > 0 && (
                     <section>
-                        <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.2em] mb-4 text-center">Floating Deductions (Approved)</h4>
-                        <div className="space-y-4">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="h-px flex-1 bg-white/5"></div>
+                            <h4 className="text-[8px] font-black text-emerald-500/60 uppercase tracking-[0.3em]">Floating Deductions (Approved)</h4>
+                            <div className="h-px flex-1 bg-white/5"></div>
+                        </div>
+                        <div className="space-y-2">
                             {Object.values(groupApproved).sort((a, b) => b.total - a.total).map(group => (
-                                <button key={group.name} onClick={() => { playSound('click'); setSelectedSalesmanId('approved_' + group.name); }} className="w-full bg-slate-900/40 backdrop-blur-3xl p-5 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-white/10 flex justify-between items-center group shadow-xl opacity-80 hover:opacity-100 transition-all">
+                                <button key={group.name} onClick={() => { playSound('click'); setSelectedSalesmanId('approved_' + group.name); }} className="w-full bg-slate-900/40 backdrop-blur-3xl p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10 flex justify-between items-center group shadow-lg opacity-80 hover:opacity-100 hover:border-emerald-500/30 hover:bg-white/[0.05] transition-all active:scale-[0.99]">
                                     <div className="flex items-center gap-4 text-left">
-                                        <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20"><ShieldCheck size={20} /></div>
+                                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20 group-hover:scale-110 transition-transform"><ShieldCheck size={18} /></div>
                                         <div>
-                                            <p className="text-slate-100 font-black text-base tracking-tight leading-tight uppercase">{group.name}</p>
-                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">{group.items.length} Approved</p>
+                                            <p className="text-slate-100 font-black text-sm tracking-tight leading-tight uppercase group-hover:text-emerald-400 transition-colors">{group.name}</p>
+                                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">{group.items.length} Approved Items</p>
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-xl font-black text-white tracking-tighter italic">₹{group.total.toLocaleString('en-IN')}</p>
+                                        <p className="text-lg font-black text-white tracking-tighter italic group-hover:scale-110 origin-right transition-transform">₹{group.total.toLocaleString('en-IN')}</p>
                                     </div>
                                 </button>
                             ))}
@@ -2371,21 +2438,21 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
 };
 
 const SalesmanSummaryView = ({ groupedCollections, searchTerm, setSearchTerm, setView, handleApprovePayment, handleRejectPayment, playSound }) => (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
         <div className="flex items-center gap-4 mb-2">
-            <button onClick={() => { playSound('pop'); setView('DASHBOARD'); }} className="p-3 bg-white/5 rounded-2xl border border-white/10 text-slate-300 hover:bg-white/10 transition-all">
-                <ArrowLeft size={24} />
+            <button onClick={() => { playSound('pop'); setView('DASHBOARD'); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 transition-all shadow-lg active:scale-95">
+                <ArrowLeft size={20} />
             </button>
             <h3 className="text-sm font-black text-[#60A5FA] uppercase tracking-[0.3em]">SALESMAN SUMMARY</h3>
         </div>
         <div className="relative group mx-0">
-            <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-[#60A5FA] transition-colors" size={18} />
+            <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-[#60A5FA] transition-colors" size={16} />
             <input
                 type="text"
-                placeholder="Search..."
+                placeholder="Search salesman..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-3xl py-4.5 pl-16 pr-6 text-sm font-bold text-white placeholder-slate-700 outline-none focus:border-[#60A5FA]/50 transition-all"
+                className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 pl-12 pr-6 text-sm font-bold text-white placeholder-slate-700 outline-none focus:border-[#60A5FA]/50 transition-all"
             />
         </div>
         <div className="space-y-4">
@@ -2429,12 +2496,12 @@ function CollectionMasterRow({ group, onApprove, onReject, searchTerm }) {
     };
 
     return (
-        <div className={`transition-all duration-500 mb-4 mx-2 ${isExpanded ? 'scale-[1.02]' : ''}`}>
-            <div onClick={() => setIsExpanded(!isExpanded)} className={`w-full p-6 pb-4 rounded-[3rem] bg-slate-900/60 backdrop-blur-[20px] border transition-all duration-300 cursor-pointer relative overflow-hidden group ${isExpanded ? 'border-[#60A5FA]/40 ring-1 ring-[#60A5FA]/20' : 'border-white/5 hover:border-white/20 shadow-lg'}`}>
+        <div className={`transition-all duration-500 mb-3 ${isExpanded ? 'scale-[1.01]' : ''}`}>
+            <div onClick={() => setIsExpanded(!isExpanded)} className={`w-full p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-slate-900/40 backdrop-blur-3xl border transition-all duration-300 cursor-pointer relative overflow-hidden group ${isExpanded ? 'border-[#60A5FA]/40 ring-1 ring-[#60A5FA]/10' : 'border-white/10 hover:border-white/20 shadow-lg hover:bg-white/5'}`}>
                 <div className="absolute top-0 right-0 w-32 h-32 bg-[#60A5FA]/5 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                <div className="flex items-start gap-5 relative z-10">
-                    <div className="w-14 h-14 rounded-full bg-slate-800/50 flex items-center justify-center text-xl font-black text-white border border-white/10 shadow-lg shrink-0">
-                        {group.name.charAt(0).toUpperCase()}
+                <div className="flex items-center gap-4 relative z-10">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 border border-blue-500/20 shadow-lg shrink-0 group-hover:scale-110 transition-transform">
+                        <Users size={18} />
                     </div>
                     <div className="flex-1 min-w-0 pr-10">
                         <div className="text-left mb-2">
@@ -2495,12 +2562,12 @@ function CollectionMasterRow({ group, onApprove, onReject, searchTerm }) {
                         <ChevronDown size={16} />
                     </div>
                 </div>
-                <div className="mt-5 pt-4 border-t border-white/5 flex items-center justify-start gap-5 relative z-10">
+                <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-start gap-4 relative z-10">
                     <SalesmanMiniStat icon={<Banknote size={12} />} label="Cash" amount={group.cash} color="text-emerald-400" />
                     <SalesmanMiniStat icon={<Smartphone size={12} />} label="UPI" amount={group.upi} color="text-sky-400" />
                     <SalesmanMiniStat icon={<Landmark size={12} />} label="Cheq" amount={group.cheque} color="text-purple-400" />
                     <div className="ml-auto text-right">
-                        <span className="text-[15px] font-black text-white italic font-mono">₹{group.total.toLocaleString('en-IN')}</span>
+                        <span className="text-[13px] font-black text-white italic">₹{group.total.toLocaleString('en-IN')}</span>
                     </div>
                 </div>
             </div>
