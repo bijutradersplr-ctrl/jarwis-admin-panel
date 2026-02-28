@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { Virtuoso } from 'react-virtuoso';
-import { LogOut, Wallet, FileText, AlertCircle, RefreshCw, User, TrendingUp, ChevronLeft, ChevronRight, MapPin, Search, ArrowRight, Smartphone, Edit2, Check, X, Loader2, Compass, Trophy, Medal, Star, Target, Zap } from 'lucide-react';
+import { LogOut, Wallet, FileText, AlertCircle, RefreshCw, User, TrendingUp, ChevronLeft, ChevronRight, MapPin, Search, ArrowRight, Smartphone, Edit2, Check, X, Loader2, Compass, Trophy, Medal, Star, Target, Zap, Truck, Lock } from 'lucide-react';
 import { getAuth } from "firebase/auth";
 import { doc, onSnapshot, collection, query, where, updateDoc, getDoc, getDocFromServer, setDoc, getDocs, increment, deleteDoc, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
@@ -113,7 +113,7 @@ const MiniLeaderboard = React.memo(({ performers, salesmanName }) => {
 
     if (!performers || performers.length === 0 || allZero) {
         return (
-            <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-8 shadow-2xl animate-fade-in text-center group overflow-hidden relative">
+            <div className="bg-slate-900/40  border border-white/10 rounded-[2.5rem] p-8 shadow-2xl animate-fade-in text-center group overflow-hidden relative">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-[40px] -mr-16 -mt-16 group-hover:bg-blue-500/20 transition-all duration-700"></div>
 
                 {/* JARWIS Circuit Pattern Overlay (Subtle) */}
@@ -121,7 +121,7 @@ const MiniLeaderboard = React.memo(({ performers, salesmanName }) => {
 
                 <div className="relative z-10 flex flex-col items-center">
                     <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center shadow-lg shadow-blue-500/20 mb-6 group-hover:scale-110 transition-transform duration-500">
-                        <Zap size={28} className="text-white animate-pulse" />
+                        <Zap size={28} className="text-white " />
                     </div>
                     <h3 className="text-xl font-black text-white tracking-tight leading-tight">
                         Ready for your first sale, {salesmanName || 'Champ'}?
@@ -135,7 +135,7 @@ const MiniLeaderboard = React.memo(({ performers, salesmanName }) => {
     }
 
     return (
-        <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 shadow-2xl animate-fade-in group relative overflow-hidden">
+        <div className="bg-slate-900/40  border border-white/10 rounded-[2.5rem] p-6 shadow-2xl animate-fade-in group relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-[40px] -mr-16 -mt-16 pointer-events-none"></div>
             <div className="flex items-center justify-center gap-2 mb-6">
                 <Trophy size={18} className="text-amber-500" />
@@ -179,9 +179,9 @@ const BadgeNotification = React.memo(({ badge, onClose }) => {
     if (!badge) return null;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-md animate-in fade-in duration-500">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-950/90  animate-in fade-in duration-500">
             <div className="relative max-w-sm w-full bg-gradient-to-br from-slate-900 to-slate-950 border border-amber-500/30 rounded-[3rem] p-10 text-center shadow-[0_0_100px_rgba(245,158,11,0.2)] animate-in zoom-in-95 duration-500">
-                <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-24 h-24 bg-amber-500 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(245,158,11,0.5)] animate-bounce-slow">
+                <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-24 h-24 bg-amber-500 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(245,158,11,0.5)] animate-pulse-slow">
                     <Trophy size={48} className="text-white" />
                 </div>
                 <Confetti />
@@ -248,6 +248,9 @@ export default function Dashboard({ salesmanID, authUID }) {
     const [isTotalOutstandingModalOpen, setIsTotalOutstandingModalOpen] = useState(false);
     const [prefilledAmount, setPrefilledAmount] = useState(null);
     const [routeFilterMode, setRouteFilterMode] = useState('TODAY'); // 'TODAY' | 'ALL'
+    const [selectedDailyRoute, setSelectedDailyRoute] = useState(null);
+    const [pendingDailyRoute, setPendingDailyRoute] = useState(null);
+    const [pendingRoute, setPendingRoute] = useState(null);
 
     // Phone Number Mgmt
     const [isPhoneModalOpen, setIsPhoneModalOpen] = useState(false);
@@ -274,6 +277,8 @@ export default function Dashboard({ salesmanID, authUID }) {
     const [showQuickActions, setShowQuickActions] = useState(false);
     const [allMasterPlans, setAllMasterPlans] = useState({});
     const [allSalesmenTargets, setAllSalesmenTargets] = useState([]);
+
+    const isSalesman = targetData?.role === 'salesman';
 
     // Company Breakdown Modal State
     const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
@@ -580,7 +585,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                 // 3. Fallback: If no date/timestamp (local write), assume Today
                 if (!isToday && !d.timestamp && !d.date) isToday = true;
 
-                if (isToday && d.status === 'Pending') {
+                if (d.status === 'Pending') {
                     // PRIORITIZE SHOP ID -> BILL NO -> PARTY
                     if (d.shop_id) pIds.push(String(d.shop_id));
                     if (d.bill_no) pIds.push(String(d.bill_no));
@@ -780,7 +785,47 @@ export default function Dashboard({ salesmanID, authUID }) {
     }, [data, selectedRoute]);
 
 
+    const availableRoutes = React.useMemo(() => {
+        const rawRoutes = data?.routes && data.routes.length > 0
+            ? data.routes
+            : (data?.bills?.map(b => b.Route).filter(Boolean) || []);
+
+        // Normalize and Deduplicate
+        const normalized = rawRoutes.map(r => r.trim().toUpperCase());
+        return [...new Set(normalized)].sort();
+    }, [data]);
+
+    const availableDailyRoutes = React.useMemo(() => {
+        if (!data || !data.daily_deliveries) return [];
+        return data.daily_deliveries || [];
+    }, [data]);
+
     const filteredBills = React.useMemo(() => {
+
+        // 1. Logic for Delivery Console (Front Office Uploads)
+        if (selectedDailyRoute && selectedDailyRoute.shops) {
+            console.log("[Dashboard] Loading Daily Delivery Shops for:", selectedDailyRoute.route_name);
+            let bills = [];
+            Object.entries(selectedDailyRoute.shops).forEach(([shopName, shopBills]) => {
+                if (Array.isArray(shopBills)) {
+                    shopBills.forEach(bill => {
+                        bills.push({
+                            ...bill,
+                            Party: shopName, // Ensure Party name is set from the map key
+                            Route: selectedDailyRoute.route_name,
+                            _isDeliveryConsole: true,
+                            // Map API fields to UI fields
+                            Amount: bill.Amount || bill.net_amount || 0,
+                            bill_no: bill.bill_no || bill.invoice_no || 'N/A',
+                            Date: bill.Date || bill.invoice_date || 'N/A',
+                            Overdue: bill.Overdue || 0
+                        });
+                    });
+                }
+            });
+            return bills;
+        }
+
         if (!data || !data.bills) return [];
 
         const bills = data.bills.map(bill => ({
@@ -788,12 +833,12 @@ export default function Dashboard({ salesmanID, authUID }) {
             shop_id: bill.shop_id || bill.ShopID || bill.id // Ensure shop_id is on every bill
         }));
 
-        if (routeFilterMode === 'ALL') return bills;
+        if (routeFilterMode === 'ALL' && !isSalesman) return bills;
         if (!selectedRoute) return [];
 
         const targetRoute = selectedRoute.trim().toUpperCase();
         return bills.filter(b => (b.Route || "").trim().toUpperCase() === targetRoute);
-    }, [data, routeFilterMode, selectedRoute]);
+    }, [data, routeFilterMode, selectedRoute, selectedDailyRoute, isSalesman]);
 
     const openPaymentModal = (bill) => {
         setSelectedBill(bill);
@@ -912,7 +957,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                 <div className="flex z-20 items-center justify-start w-1/3">
                     <div className="flex items-center gap-2 max-w-full">
                         {view !== 'HOME' ? (
-                            <button onClick={() => { playSound('click'); setView('HOME'); }} className="w-11 h-11 flex items-center justify-center bg-white/10 backdrop-blur-md rounded-2xl hover:bg-white/20 transition-all active:scale-95 border border-white/10 shadow-lg group shrink-0">
+                            <button onClick={() => { playSound('click'); setView('HOME'); }} className="w-11 h-11 flex items-center justify-center bg-white/10  rounded-2xl hover:bg-white/20 transition-all active:scale-95 border border-white/10 shadow-lg group shrink-0">
                                 <ChevronLeft size={20} className="text-white group-hover:-translate-x-0.5 transition-transform" />
                             </button>
                         ) : (
@@ -941,14 +986,44 @@ export default function Dashboard({ salesmanID, authUID }) {
 
                 {/* RIGHT AREA: Refresh & Logout */}
                 <div className="flex z-20 items-center justify-end w-1/3">
-                    <div className="flex items-center bg-slate-800/80 backdrop-blur-xl rounded-full p-1 border border-white/5 shadow-inner shrink-0">
-                        <button
-                            onClick={() => { playSound('click'); handleHardRefresh(); }}
-                            disabled={isRefreshing}
-                            className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90 ${isRefreshing ? 'animate-spin text-blue-400' : 'text-slate-300 hover:text-white hover:bg-white/10'}`}
-                        >
-                            <RefreshCw size={14} strokeWidth={2.5} />
-                        </button>
+                    <div className="flex items-center bg-slate-800/80  rounded-full p-1 border border-white/5 shadow-inner shrink-0">
+                        {!isSalesman && (
+                            <button
+                                onClick={() => { playSound('click'); handleHardRefresh(); }}
+                                disabled={isRefreshing}
+                                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90 ${isRefreshing ? 'animate-spin text-blue-400' : 'text-slate-300 hover:text-white hover:bg-white/10'}`}
+                            >
+                                <RefreshCw size={14} strokeWidth={2.5} />
+                            </button>
+                        )}
+                        {/* [PROMINENT] Switch to Delivery Hub Shortcut */}
+                        {!selectedDailyRoute && !selectedRoute && availableDailyRoutes.length > 0 && (
+                            <button
+                                onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
+                                className="mt-4 px-6 py-2 bg-emerald-500 text-slate-950 font-black uppercase tracking-[0.2em] rounded-full text-[10px] shadow-[0_0_20px_rgba(16,185,129,0.4)]  active:scale-95 transition-all flex items-center gap-2"
+                            >
+                                <Truck size={14} /> View Delivery Hub (New Load)
+                            </button>
+                        )}
+
+                        {/* [LOCKED] Unified Navigation area when route is active */}
+                        {(selectedRoute || selectedDailyRoute) && (
+                            <div className="flex flex-col gap-3 w-full max-w-[280px]">
+                                <button
+                                    onClick={() => { playSound('click'); setView('OUTSTANDING_LIST'); }}
+                                    className="mt-2 px-8 py-4 bg-emerald-500 text-slate-950 font-black uppercase tracking-[0.2em] rounded-2xl text-[12px] shadow-[0_10px_30px_rgba(16,185,129,0.3)] active:scale-95 transition-all flex items-center justify-center gap-3"
+                                >
+                                    <FileText size={18} /> {selectedDailyRoute ? 'Delivery Consolidation' : 'Salesman Consolidation'}
+                                </button>
+
+                                <button
+                                    onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
+                                    className='px-8 py-3 bg-white/5 text-slate-400 hover:text-white border border-white/10 hover:border-white/20 font-black uppercase tracking-[0.2em] rounded-2xl text-[10px] active:scale-95 transition-all flex items-center justify-center gap-2'
+                                >
+                                    <MapPin size={14} /> {selectedDailyRoute ? 'Change Delivery Sector' : 'Change Salesman Sector'}
+                                </button>
+                            </div>
+                        )}
                         <div className="w-[1px] h-5 bg-white/10 mx-0.5"></div>
                         <button
                             onClick={() => { playSound('click'); handleLogout(); }}
@@ -994,7 +1069,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                                     <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
                                     <h3 className="text-slate-300 text-[10px] font-black uppercase tracking-[0.3em]">Quick Hub</h3>
                                 </div>
-                                <span className="text-slate-500 text-[9px] uppercase tracking-widest font-black animate-pulse flex items-center gap-1">
+                                <span className="text-slate-500 text-[9px] uppercase tracking-widest font-black  flex items-center gap-1">
                                     Swipe Right <ArrowRight size={10} />
                                 </span>
                             </div>
@@ -1002,7 +1077,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                             {/* 1. Outstandings Button (Red/Orange Glow) */}
                             <button
                                 onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
-                                className="group relative overflow-hidden bg-slate-900/40 backdrop-blur-xl p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-orange-500/20 to-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                                 <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
@@ -1024,7 +1099,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                             {/* 2. My Sales Button (Neon Blue Glow) */}
                             <button
                                 onClick={() => { playSound('click'); setView('SALES'); }}
-                                className="group relative overflow-hidden bg-slate-900/40 backdrop-blur-xl p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                                 <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
@@ -1046,7 +1121,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                             {/* 3. Collection Report Button (Teal/Emerald Glow) */}
                             <button
                                 onClick={() => { playSound('click'); setView('REPORTS'); }}
-                                className="group relative overflow-hidden bg-slate-900/40 backdrop-blur-xl p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                                 <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
@@ -1068,7 +1143,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                             {/* 4. Route Portfolio Button (Premium Indigo Glow) */}
                             <button
                                 onClick={() => { playSound('click'); setView('PORTFOLIO'); }}
-                                className="group relative overflow-hidden bg-slate-900/40 backdrop-blur-xl p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-blue-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                                 <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
@@ -1098,7 +1173,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                                 <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tighter drop-shadow-2xl px-6 leading-tight uppercase truncate max-w-[80vw] sm:max-w-none block">
                                     {targetData?.salesman_name || targetData?.name || salesmanID}
                                 </h2>
-                                <div className="absolute -right-1 top-1.5 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.6)] animate-pulse"></div>
+                                <div className="absolute -right-1 top-1.5 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.6)] "></div>
                             </div>
 
                             {/* RANK BADGE - Centered below name */}
@@ -1112,7 +1187,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                                 if (myEntry && myEntry.rank <= 3 && myEntry.pct >= 1) {
                                     const rank = myEntry.rank;
                                     return (
-                                        <div className={`px-5 py-2 rounded-full border font-black text-[10px] uppercase tracking-[0.25em] shadow-xl animate-in fade-in zoom-in duration-700 backdrop-blur-md ${rank === 1 ? 'bg-amber-500/20 border-amber-500/30 text-amber-500 shadow-amber-500/20' :
+                                        <div className={`px-5 py-2 rounded-full border font-black text-[10px] uppercase tracking-[0.25em] shadow-xl animate-in fade-in zoom-in duration-700  ${rank === 1 ? 'bg-amber-500/20 border-amber-500/30 text-amber-500 shadow-amber-500/20' :
                                             rank === 2 ? 'bg-slate-300/20 border-slate-300/30 text-slate-300 shadow-slate-300/20' :
                                                 'bg-orange-500/20 border-orange-500/30 text-orange-500 shadow-orange-500/20'
                                             }`}>
@@ -1125,7 +1200,7 @@ export default function Dashboard({ salesmanID, authUID }) {
 
                             <div className="mt-2 flex justify-center">
                                 {selectedRoute ? (
-                                    <div className="bg-slate-800/80 backdrop-blur-xl px-4 py-1.5 rounded-full border border-white/10 shadow-lg inline-flex items-center gap-2 group active:scale-95 transition-all">
+                                    <div className="bg-slate-800/80  px-4 py-1.5 rounded-full border border-white/10 shadow-lg inline-flex items-center gap-2 group active:scale-95 transition-all">
                                         <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
                                             <MapPin size={12} className="text-blue-400" />
                                         </div>
@@ -1135,7 +1210,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="bg-red-500/10 backdrop-blur-md px-4 py-1.5 rounded-full border border-red-500/20 shadow-inner inline-flex items-center gap-2 relative overflow-hidden group hover:bg-red-500/15 transition-colors">
+                                    <div className="bg-red-500/10  px-4 py-1.5 rounded-full border border-red-500/20 shadow-inner inline-flex items-center gap-2 relative overflow-hidden group hover:bg-red-500/15 transition-colors">
                                         <div className="absolute inset-0 bg-red-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                         <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
                                             <AlertCircle size={10} className="text-red-400" />
@@ -1179,7 +1254,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                                             onClick={() => { playSound('click'); setIsTotalOutstandingModalOpen(true); }}
                                             className="mt-3 group flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 px-5 py-2 rounded-full transition-all active:scale-95"
                                         >
-                                            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0"></div>
+                                            <div className="w-2 h-2 rounded-full bg-rose-500  shrink-0"></div>
                                             <div className="flex flex-col items-center justify-center leading-none">
                                                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Outstanding</span>
                                                 <span className="text-sm font-black text-white tracking-tight">₹{(data?.total_outstanding || 0).toLocaleString('en-IN')}</span>
@@ -1270,7 +1345,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                         return (
                             <div className="min-w-full w-full h-full shrink-0 snap-center snap-always px-6 flex flex-col justify-center pb-6">
                                 <div
-                                    className="bg-slate-900/40 backdrop-blur-3xl border border-white/5 rounded-[2.5rem] p-8 mt-4 shadow-2xl relative overflow-hidden group cursor-pointer active:scale-[0.98] transition-all flex flex-col items-center h-full justify-center min-h-[350px]"
+                                    className="bg-slate-900/40  border border-white/5 rounded-[2.5rem] p-8 mt-4 shadow-2xl relative overflow-hidden group cursor-pointer active:scale-[0.98] transition-all flex flex-col items-center h-full justify-center min-h-[350px]"
                                     onClick={() => {
                                         playSound('click');
                                         setSelectedCompanyData({ name: company, color: config.color, glow: config.glow });
@@ -1291,9 +1366,9 @@ export default function Dashboard({ salesmanID, authUID }) {
                                             <span className="text-slate-500 text-[11px] font-black tracking-[0.2em] uppercase opacity-60">TARGET: ₹{companyTarget.toLocaleString('en-IN')}</span>
                                         </div>
 
-                                        <div className={`mt-8 px-8 py-3 rounded-full border border-white/10 bg-[#121828] shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-xl group-hover:bg-[#1a2336] group-hover:border-white/20 transition-all`}>
+                                        <div className={`mt-8 px-8 py-3 rounded-full border border-white/10 bg-[#121828] shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex items-center gap-3  group-hover:bg-[#1a2336] group-hover:border-white/20 transition-all`}>
                                             <div
-                                                className={`w-2 h-2 rounded-full bg-gradient-to-r ${config.color} animate-pulse`}
+                                                className={`w-2 h-2 rounded-full bg-gradient-to-r ${config.color} `}
                                                 style={{ boxShadow: `0 0 12px ${config.glow}` }}
                                             ></div>
                                             <span className="text-xs font-black text-slate-100 tracking-[0.2em]">{percentage}% COMPLETED</span>
@@ -1333,16 +1408,6 @@ export default function Dashboard({ salesmanID, authUID }) {
 
     // Route Selection View
     const RouteSelectView = () => {
-        const availableRoutes = React.useMemo(() => {
-            const rawRoutes = data?.routes && data.routes.length > 0
-                ? data.routes
-                : (data?.bills?.map(b => b.Route).filter(Boolean) || []);
-
-            // Normalize and Deduplicate
-            const normalized = rawRoutes.map(r => r.trim().toUpperCase());
-            return [...new Set(normalized)].sort();
-        }, [data]);
-
         return (
             <div className="px-6 pb-20 min-h-[80vh]">
                 <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
@@ -1363,23 +1428,83 @@ export default function Dashboard({ salesmanID, authUID }) {
                         </div>
                     </button>
 
-                    {availableRoutes.map((route, idx) => (
-                        <button
-                            key={idx}
-                            onClick={() => { React.startTransition(() => { setSelectedRoute(route); setRouteFilterMode('TODAY'); setView('OUTSTANDING_LIST'); }); }}
-                            className="p-6 bg-slate-900/40 backdrop-blur-3xl rounded-3xl border border-white/10 hover:border-blue-500/40 hover:bg-slate-900 transition-all active:scale-[0.98] text-left group shadow-xl"
-                        >
-                            <div className="flex justify-between items-center">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)] group-hover:scale-125 transition-transform"></div>
-                                    <span className="font-black text-slate-100 text-base tracking-tight group-hover:text-blue-400 transition-colors uppercase">{route}</span>
-                                </div>
-                                <span className="bg-slate-950/50 px-3 py-1.5 rounded-xl text-[10px] text-slate-400 font-black tracking-widest border border-white/5">
-                                    {data?.bills?.filter(b => (b.Route || "").trim().toUpperCase() === route).length} UNITS
-                                </span>
+                    {availableRoutes.map((route, idx) => {
+                        const isPending = pendingRoute === route;
+
+                        return (
+                            <div key={idx} className="relative">
+                                <button
+                                    onClick={() => {
+                                        playSound('click');
+                                        React.startTransition(() => {
+                                            localStorage.setItem('selectedRoute', route);
+                                            setSelectedRoute(route);
+                                            setRouteFilterMode('TODAY');
+                                            setSelectedDailyRoute(null); // Clear delivery route
+                                            setView('OUTSTANDING_LIST');
+                                        });
+                                    }}
+                                    className={`w-full p-6 rounded-3xl border transition-all active:scale-[0.98] text-left group shadow-xl flex justify-between items-center bg-slate-900/40 border-white/10 hover:border-blue-500/40 hover:bg-slate-900`}
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]`}></div>
+                                        <div className="flex flex-col">
+                                            <span className={`font-black text-base tracking-tight transition-colors uppercase text-slate-100 group-hover:text-blue-400`}>
+                                                {route}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <span className="bg-slate-900 px-3 py-1.5 rounded-xl text-[10px] text-slate-400 font-black tracking-widest border border-white/5">
+                                        {data?.bills?.filter(b => (b.Route || "").trim().toUpperCase() === route).length} UNITS
+                                    </span>
+                                </button>
                             </div>
-                        </button>
-                    ))}
+                        );
+                    })}
+
+                    {/* Delivery Console Hub Options */}
+                    {availableDailyRoutes.length > 0 && (
+                        <div className="mt-8">
+                            <h3 className="text-sm font-black text-emerald-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                <Truck size={16} /> Delivery Hubs
+                            </h3>
+                            <div className="grid gap-4">
+                                {availableDailyRoutes.map((routeObj, idx) => {
+                                    const isPending = pendingDailyRoute === routeObj;
+                                    return (
+                                        <div key={idx} className="relative">
+                                            <button
+                                                onClick={() => {
+                                                    playSound('click');
+                                                    React.startTransition(() => {
+                                                        setSelectedDailyRoute(routeObj);
+                                                        setRouteFilterMode('TODAY');
+                                                        setSelectedRoute(null); // Clear sales route
+                                                        setView('OUTSTANDING_LIST');
+                                                    });
+                                                }}
+                                                className={`w-full p-6 rounded-3xl border transition-all active:scale-[0.98] text-left group shadow-xl flex justify-between items-center bg-slate-900/40 border-white/10 hover:border-emerald-500/40 hover:bg-slate-900`}
+                                            >
+                                                <div>
+                                                    <span className={`font-black text-lg tracking-tight text-white`}>
+                                                        {routeObj.route_name}
+                                                    </span>
+                                                    <p className={`text-[10px] uppercase font-black tracking-wider mt-1 text-emerald-400/80`}>
+                                                        {Object.keys(routeObj.shops || {}).length} Drops Assigned
+                                                    </p>
+                                                </div>
+                                                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-transform bg-emerald-500/20 text-emerald-400 group-hover:scale-110`}>
+                                                    <Truck size={20} />
+                                                </div>
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                 </div>
 
                 {/* Developer / Version Signature */}
@@ -1460,23 +1585,25 @@ export default function Dashboard({ salesmanID, authUID }) {
             <div className="px-5 pb-20 space-y-4">
                 {/* Route Header with Toggle */}
                 <div className="flex flex-col gap-4 mb-6">
-                    <div className="flex bg-slate-800/50 p-1.5 rounded-full border border-white/5 relative">
-                        {/* Sliding Background */}
-                        <div className={`absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-blue-600 rounded-full shadow-lg transition-all duration-300 ease-out ${routeFilterMode === 'TODAY' ? 'left-1.5' : 'left-[calc(50%+3px)]'}`}></div>
+                    {!isSalesman && (
+                        <div className="flex bg-slate-800/50 p-1.5 rounded-full border border-white/5 relative">
+                            {/* Sliding Background */}
+                            <div className={`absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-blue-600 rounded-full shadow-lg transition-all duration-300 ease-out ${routeFilterMode === 'TODAY' ? 'left-1.5' : 'left-[calc(50%+3px)]'}`}></div>
 
-                        <button
-                            onClick={() => React.startTransition(() => { setRouteFilterMode('TODAY'); })}
-                            className={`flex-1 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors ${routeFilterMode === 'TODAY' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
-                        >
-                            Today's Route
-                        </button>
-                        <button
-                            onClick={() => React.startTransition(() => { setRouteFilterMode('ALL'); })}
-                            className={`flex-1 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors ${routeFilterMode === 'ALL' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
-                        >
-                            All My Routes
-                        </button>
-                    </div>
+                            <button
+                                onClick={() => React.startTransition(() => { setRouteFilterMode('TODAY'); })}
+                                className={`flex-1 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors ${routeFilterMode === 'TODAY' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                            >
+                                Today's Route
+                            </button>
+                            <button
+                                onClick={() => React.startTransition(() => { setRouteFilterMode('ALL'); })}
+                                className={`flex-1 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors ${routeFilterMode === 'ALL' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                            >
+                                All My Routes
+                            </button>
+                        </div>
+                    )}
 
                     <div className="flex items-center justify-between px-2">
                         <h2 className="text-sm font-bold text-slate-300 flex items-center gap-2">
@@ -1511,34 +1638,28 @@ export default function Dashboard({ salesmanID, authUID }) {
                             const maxDays = shop.maxOverdue;
 
                             if (maxDays >= 15) {
-                                themeClass = "bg-gradient-to-br from-red-500/15 via-red-950/40 to-slate-950/60 border-red-500/30 shadow-red-900/40";
-                                accentColor = "bg-gradient-to-b from-red-500 to-rose-700 shadow-[0_0_15px_rgba(239,68,68,0.5)] text-red-500";
-                                glowColor = "bg-red-500/10";
+                                themeClass = "bg-slate-900 border-red-500/40";
+                                accentColor = "bg-red-600";
                             } else if (maxDays >= 8) {
-                                themeClass = "bg-gradient-to-br from-orange-500/15 via-orange-950/40 to-slate-950/60 border-orange-500/30 shadow-orange-900/40";
-                                accentColor = "bg-gradient-to-b from-orange-500 to-amber-700 shadow-[0_0_15px_rgba(249,115,22,0.5)] text-orange-500";
-                                glowColor = "bg-orange-500/10";
+                                themeClass = "bg-slate-900 border-orange-500/40";
+                                accentColor = "bg-orange-600";
                             } else if (maxDays >= 1) {
-                                themeClass = "bg-gradient-to-br from-emerald-500/15 via-emerald-950/40 to-slate-950/60 border-emerald-500/30 shadow-emerald-900/40";
-                                accentColor = "bg-gradient-to-b from-emerald-500 to-teal-700 shadow-[0_0_15px_rgba(16,185,129,0.5)] text-emerald-500";
-                                glowColor = "bg-emerald-500/10";
+                                themeClass = "bg-slate-900 border-emerald-500/40";
+                                accentColor = "bg-emerald-600";
                             }
 
                             return (
-                                <div key={shop.shop_id || index} className={`mb-6 group relative p-3 sm:p-4 pl-4 sm:pl-5 rounded-[1.5rem] sm:rounded-[2rem] overflow-hidden sm:transition-all sm:duration-500 min-h-fit shadow-lg sm:shadow-2xl border bg-slate-900/40 sm:backdrop-blur-3xl ${themeClass}`}>
+                                <div key={shop.shop_id || index} className={`mb-4 group relative p-3 pl-4 rounded-2xl overflow-hidden min-h-fit border ${themeClass} shadow-lg shadow-black/20`}>
                                     {/* VERTICAL ACCENT BAR */}
-                                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${accentColor.split(' ')[0]}`}></div>
-
-                                    {/* Sophisticated Glow Effect - Disabled on mobile for performance */}
-                                    <div className={`hidden sm:block absolute top-0 right-0 w-64 h-64 blur-[80px] rounded-full pointer-events-none transition-all duration-700 ${glowColor} group-hover:opacity-100 opacity-60`}></div>
+                                    <div className={`absolute left-0 top-0 bottom-0 w-1 ${accentColor}`}></div>
 
                                     {/* --- TOP SECTION: NAME & TOTAL AMOUNT --- */}
                                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 relative z-20 gap-3 sm:gap-0">
                                         <div className="flex-1 pr-0 sm:pr-4 w-full min-w-0">
-                                            <h3 className="font-black text-xl sm:text-3xl text-white leading-tight tracking-tight uppercase drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-slate-300 transition-all break-words block">
+                                            <h3 className="font-black text-lg sm:text-2xl text-white leading-tight tracking-tight uppercase block">
                                                 {shop.name}
                                             </h3>
-                                            <div className="flex flex-wrap items-center gap-2 mt-3 relative">
+                                            <div className="flex flex-wrap items-center gap-2 mt-2 relative">
                                                 {/* GRADE BADGE */}
                                                 {(() => {
                                                     const histGrade = shop.bills[0]?.historical_grade;
@@ -1552,92 +1673,54 @@ export default function Dashboard({ salesmanID, authUID }) {
                                                         else if (maxDays >= 8) grade = 'B';
                                                     }
 
-                                                    let gClass = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10 shadow-[0_0_10px_rgba(16,185,129,0.2)]';
+                                                    let gClass = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
                                                     let explanation = 'Excellent history. Pays on time.';
 
                                                     if (grade === 'F') {
-                                                        gClass = 'text-red-500 border-red-500/50 bg-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse';
+                                                        gClass = 'text-red-500 border-red-500/50 bg-red-500/20';
                                                         explanation = 'Chronic Defaulter! History of 30+ Days Overdue.';
                                                     } else if (grade === 'C') {
-                                                        gClass = 'text-orange-400 border-orange-500/30 bg-orange-500/10 shadow-[0_0_10px_rgba(249,115,22,0.2)]';
+                                                        gClass = 'text-orange-400 border-orange-500/30 bg-orange-500/10';
                                                         explanation = 'Warning. History of 15-29 Days Overdue.';
                                                     } else if (grade === 'B') {
-                                                        gClass = 'text-blue-400 border-blue-500/30 bg-blue-500/10 shadow-[0_0_10px_rgba(59,130,246,0.2)]';
+                                                        gClass = 'text-blue-400 border-blue-500/30 bg-blue-500/10';
                                                         explanation = 'Good standing. Minor delays (8-14 Days).';
                                                     }
 
                                                     return (
                                                         <div className="relative group/grade">
                                                             <div
-                                                                className={`flex items-center justify-center w-7 h-7 rounded-lg border backdrop-blur-md cursor-pointer hover:scale-110 active:scale-95 transition-all ${gClass}`}
+                                                                className={`flex items-center justify-center w-6 h-6 rounded border ${gClass}`}
                                                             >
-                                                                <span className="text-sm font-black drop-shadow-md">{grade}</span>
-                                                            </div>
-
-                                                            {/* HOVER/CLICK POPUP */}
-                                                            <div className="absolute left-0 top-full mt-2 w-max max-w-[200px] p-3 rounded-xl bg-slate-900 border border-white/10 shadow-2xl opacity-0 invisible group-hover/grade:opacity-100 group-hover/grade:visible sm:transition-all z-50 pointer-events-none transform translate-y-2 group-hover/grade:translate-y-0 text-left">
-                                                                <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-1">Historical Grade {grade}</p>
-                                                                <p className="text-[11px] font-bold text-white whitespace-normal mb-2">{explanation}</p>
-
-                                                                {(grade === 'C' || grade === 'F') && (
-                                                                    <div className="bg-red-500/10 border border-red-500/20 rounded p-1.5 mb-2">
-                                                                        <p className="text-[9px] text-red-300 leading-tight">Takes 3 consecutive weeks of on-time payments to restore grade.</p>
-                                                                    </div>
-                                                                )}
-
-                                                                <p className="text-[10px] text-white/70 italic border-t border-white/10 pt-1">Current Max Overdue: {activeMaxDays} Days</p>
+                                                                <span className="text-[10px] font-black">{grade}</span>
                                                             </div>
                                                         </div>
                                                     );
                                                 })()}
 
-                                                <div className="flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-lg border border-white/10 backdrop-blur-md shadow-sm">
-                                                    <TrendingUp size={12} className="text-white/70" />
-                                                    <span className="text-[10px] font-black text-white/90 tracking-widest">{shop.bills.length} BILLS</span>
+                                                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-800 rounded-md border border-white/5">
+                                                    <TrendingUp size={10} className="text-white/50" />
+                                                    <span className="text-[9px] font-bold text-white/70 tracking-widest uppercase">{shop.bills.length} Bills</span>
                                                 </div>
-                                                {shop.phone ? (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            openPhoneModal(shop.bills[0]);
-                                                        }}
-                                                        className="flex items-center gap-1.5 px-3 py-1 bg-indigo-500/20 rounded-full border border-indigo-500/30 hover:bg-indigo-500/30 transition-all active:scale-95 group/phone shadow-[0_0_10px_rgba(99,102,241,0.2)]"
-                                                    >
-                                                        <Smartphone size={12} className="text-indigo-300" />
-                                                        <span className="text-[10px] font-black text-indigo-200 tracking-tight">{shop.phone}</span>
-                                                        <Edit2 size={8} className="text-indigo-400/50 group-hover/phone:text-indigo-300 transition-colors" />
-                                                    </button>
-                                                ) : (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            openPhoneModal(shop.bills[0]);
-                                                        }}
-                                                        className="flex items-center gap-1.5 px-3 py-1 bg-slate-700/30 rounded-full border border-slate-600/30 hover:bg-slate-600/40 transition-all active:scale-95 text-slate-300 hover:text-white shadow-sm"
-                                                    >
-                                                        <Smartphone size={12} />
-                                                        <span className="text-[10px] font-black uppercase tracking-widest">Add Phone</span>
-                                                    </button>
-                                                )}
-                                                {pendingRequests.some(u => u.party === shop.name) && (
-                                                    <div className="flex items-center gap-1 px-3 py-1 bg-amber-500/20 rounded-full border border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
-                                                        <RefreshCw size={10} className="text-amber-400 animate-spin" />
-                                                        <span className="text-[9px] font-black text-amber-200 uppercase tracking-tighter">Verifying</span>
+                                                {shop.phone && (
+                                                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-500/10 rounded-full border border-indigo-500/20 text-indigo-300">
+                                                        <Smartphone size={10} />
+                                                        <span className="text-[9px] font-bold">{shop.phone}</span>
                                                     </div>
                                                 )}
                                             </div>
                                         </div>
 
-                                        <div className="text-left sm:text-right w-full sm:w-auto bg-slate-950/80 sm:bg-transparent p-3 sm:p-4 rounded-xl sm:rounded-none border border-white/10 sm:border-none backdrop-blur-xl shadow-2xl sm:shadow-none sm:backdrop-blur-none transition-all hover:bg-black/90 group/total">
-                                            <p className="text-[8px] sm:text-[9px] font-black text-white/50 uppercase tracking-[0.2em] mb-1 sm:mb-0 group-hover/total:text-white/70 transition-colors">Total Outstanding</p>
-                                            <p className="text-2xl sm:text-5xl font-black text-white tracking-tighter drop-shadow-[0_2px_15px_rgba(0,0,0,0.8)] bg-gradient-to-tr from-white via-slate-200 to-slate-400 bg-clip-text text-transparent break-words">
+                                        <div className="text-left sm:text-right w-full sm:w-auto bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
+                                            <p className="text-[8px] font-black text-white/40 uppercase tracking-widest">Total Outstanding</p>
+                                            <p className="text-xl sm:text-3xl font-black text-white tracking-tighter">
                                                 ₹{shop.totalAmount.toLocaleString('en-IN')}
                                             </p>
                                         </div>
                                     </div>
 
                                     {/* --- MIDDLE SECTION: DETAILED BILLS LIST --- */}
-                                    <div className="mt-4 mb-5 relative z-10 space-y-2">
+                                    <div className="mt-2 mb-3 space-y-1.5">
                                         <p className="text-[9px] font-black text-slate-400/80 uppercase tracking-[0.3em] mb-3 px-2 flex items-center gap-2">
                                             <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
                                             Bill Breakdown (Oldest First)
@@ -1646,30 +1729,30 @@ export default function Dashboard({ salesmanID, authUID }) {
                                             const bOverdue = Number(b.Overdue || 0);
                                             const bDate = b._precal_date_str || 'N/A';
 
-                                            const dateColorClass = bOverdue >= 15 ? 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]' :
-                                                bOverdue >= 8 ? 'text-orange-500 drop-shadow-[0_0_8px_rgba(249,115,22,0.6)]' :
-                                                    'text-emerald-500 drop-shadow-[0_0_8px_rgba(16,185,129,0.6)]';
+                                            const dateColorClass = bOverdue >= 15 ? 'text-red-500' :
+                                                bOverdue >= 8 ? 'text-orange-500' :
+                                                    'text-emerald-500';
 
                                             return (
-                                                <div key={idx} className="flex items-center justify-between p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-slate-950/80 border border-white/10 group/bill hover:bg-black sm:transition-all sm:duration-300 shadow-md sm:shadow-xl hover:shadow-lg sm:hover:shadow-2xl sm:backdrop-blur-xl sm:hover:scale-[1.02] hover:border-white/20">
-                                                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                                                        <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center font-black text-xs shadow-lg transition-transform group-hover/bill:scale-110 shrink-0 ${bOverdue >= 15 ? 'bg-red-500/20 text-red-500 border border-red-500/30 shadow-red-500/10' :
-                                                            bOverdue >= 8 ? 'bg-orange-500/20 text-orange-500 border border-orange-500/30 shadow-orange-500/10' :
-                                                                'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 shadow-emerald-500/10'
+                                                <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-black/40 border border-white/5">
+                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        <div className={`w-6 h-6 rounded flex items-center justify-center font-black text-[9px] ${bOverdue >= 15 ? 'bg-red-500/20 text-red-500' :
+                                                            bOverdue >= 8 ? 'bg-orange-500/20 text-orange-500' :
+                                                                'bg-emerald-500/20 text-emerald-500'
                                                             }`}>
                                                             {idx + 1}
                                                         </div>
                                                         <div className="min-w-0">
-                                                            <p className="text-xs sm:text-sm font-black text-slate-200 tracking-tight uppercase group-hover/bill:text-white transition-colors truncate">#{b.bill_no || 'NO_ID'}</p>
-                                                            <div className={`flex items-center gap-1.5 sm:gap-2 mt-0.5 ${dateColorClass} font-black uppercase tracking-widest text-[9px] sm:text-[10px]`}>
+                                                            <p className="text-[10px] font-black text-slate-200 truncate leading-none">#{b.bill_no || 'ID'}</p>
+                                                            <div className={`flex items-center gap-1.5 mt-0.5 ${dateColorClass} font-bold text-[8px] uppercase tracking-wider`}>
                                                                 <p>{bDate}</p>
                                                                 <span>•</span>
-                                                                <p className="whitespace-nowrap">{bOverdue} Days</p>
+                                                                <p>{bOverdue} Days</p>
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="text-right pl-3 shrink-0">
-                                                        <p className="text-base sm:text-lg font-black text-white tracking-tight drop-shadow-md group-hover/bill:text-blue-200 transition-colors">₹{Number(b.Amount).toLocaleString('en-IN')}</p>
+                                                    <div className="text-right pl-2">
+                                                        <p className="text-sm font-black text-white">₹{Number(b.Amount).toLocaleString('en-IN')}</p>
                                                     </div>
                                                 </div>
                                             );
@@ -1677,15 +1760,15 @@ export default function Dashboard({ salesmanID, authUID }) {
                                     </div>
 
                                     {/* --- BOTTOM SECTION: ACTIONS --- */}
-                                    <div className="flex items-center justify-between relative z-10 pt-4 border-t border-white/5">
+                                    <div className="flex items-center justify-between pt-3 border-t border-white/5">
                                         <div className="flex gap-2">
                                             {shop.phone && (
                                                 <a
                                                     href={`tel:${shop.phone}`}
                                                     onClick={(e) => e.stopPropagation()}
-                                                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5 transition-all active:scale-95 shadow-lg backdrop-blur-md"
+                                                    className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/5 text-slate-400 border border-white/5"
                                                 >
-                                                    <Smartphone size={18} />
+                                                    <Smartphone size={16} />
                                                 </a>
                                             )}
                                         </div>
@@ -1705,26 +1788,22 @@ export default function Dashboard({ salesmanID, authUID }) {
                                             return isFullyPending ? (
                                                 <button
                                                     disabled={true}
-                                                    className="ml-4 flex-1 bg-gradient-to-r from-orange-500/20 to-amber-500/20 border border-orange-500/30 text-orange-400 font-black text-[10px] uppercase tracking-[0.2em] py-3 rounded-xl flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(249,115,22,0.1)] cursor-not-allowed"
+                                                    className="ml-3 flex-1 bg-orange-500/10 border border-orange-500/20 text-orange-400 font-bold text-[9px] uppercase tracking-widest py-2 rounded-lg"
                                                 >
-                                                    <div className="animate-spin-slow">⏳</div>
-                                                    {shopPendingAmount > 0 ? 'VERIFYING...' : 'GROUP PENDING'}
+                                                    {shopPendingAmount > 0 ? 'VERIFYING...' : 'PENDING'}
                                                 </button>
                                             ) : (
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         playSound('cash');
-                                                        setSelectedBill(shop.bills[0]);
+                                                        setSelectedBill({ ...shop.bills[0], previouslyPaidAmount: shopPendingAmount });
                                                         setPrefilledAmount(remainingBalance.toString());
                                                         setIsPaymentModalOpen(true);
                                                     }}
-                                                    className="ml-4 flex-1 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white font-black text-xs uppercase tracking-[0.1em] py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg sm:shadow-[0_10px_25px_rgba(16,185,129,0.4)] active:scale-95 sm:transition-all sm:animate-pulse-subtle border border-emerald-500/20"
+                                                    className="ml-3 flex-1 bg-emerald-600 active:bg-emerald-700 text-white font-black text-sm uppercase py-2.5 rounded-lg flex items-center justify-center gap-2 border border-emerald-500/20"
                                                 >
-                                                    <div className="w-8 h-8 rounded-full bg-yellow-400 border-2 border-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.6)] flex items-center justify-center text-yellow-900">
-                                                        <span className="text-lg font-black">₹</span>
-                                                    </div>
-                                                    <span className="text-lg sm:text-xl font-black drop-shadow-md">₹{remainingBalance.toLocaleString('en-IN')}</span>
+                                                    <span className="text-xs">Collect ₹{remainingBalance.toLocaleString('en-IN')}</span>
                                                 </button>
                                             );
                                         })()}
@@ -1819,7 +1898,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                     const progressPct = totalInitial > 0 ? (collectedThisRoute / totalInitial) * 100 : 0;
 
                     return (
-                        <div key={idx} className="bg-slate-900/60 backdrop-blur-3xl border border-white/5 p-6 rounded-[2rem] flex flex-col gap-4 group hover:bg-slate-900 transition-all shadow-xl hover:shadow-indigo-500/5 hover:-translate-y-1">
+                        <div key={idx} className="bg-slate-900/60  border border-white/5 p-6 rounded-[2rem] flex flex-col gap-4 group hover:bg-slate-900 transition-all shadow-xl hover:shadow-indigo-500/5 hover:-translate-y-1">
                             <div className="flex justify-between items-center">
                                 <div className="flex items-center gap-4">
                                     <div className={`w-1.5 h-10 rounded-full ${rName === selectedRoute ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)]' : 'bg-slate-700'}`}></div>
@@ -1869,7 +1948,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                         ₹{(data?.total_outstanding || 0).toLocaleString('en-IN')}
                     </p>
                     <div className="mt-6 flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 "></div>
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Audited & Verified</p>
                     </div>
                 </div>
@@ -2042,7 +2121,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                         </div>
                     ) : (
                         todayPayments.map((p, i) => (
-                            <div key={i} className="bg-slate-900/40 backdrop-blur-3xl p-5 rounded-3xl border border-white/10 flex justify-between items-center group shadow-xl">
+                            <div key={i} className="bg-slate-900/40  p-5 rounded-3xl border border-white/10 flex justify-between items-center group shadow-xl">
                                 <div className="min-w-0 flex-1">
                                     <p className="text-slate-100 font-black text-sm tracking-tight leading-tight uppercase">{p.party}</p>
                                     <div className="flex flex-wrap items-center gap-2.5 mt-2">
@@ -2097,7 +2176,8 @@ export default function Dashboard({ salesmanID, authUID }) {
 
         const { monthly_target = 0, total_achieved = 0, working_days = 26 } = targetData;
         const daily_target = working_days > 0 ? (monthly_target / working_days) : 0;
-        const percentage = monthly_target > 0 ? Math.min(100, (total_achieved / monthly_target) * 100) : 0;
+        const displayPercentage = monthly_target > 0 ? (total_achieved / monthly_target) * 100 : 0;
+        const percentage = Math.min(100, displayPercentage);
         const remaining_amount = Math.max(0, monthly_target - total_achieved);
 
         return (
@@ -2108,7 +2188,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                         <span className="text-blue-500">My</span> Performance
                     </h2>
                     <div className="px-4 py-1.5 bg-blue-900/30 border border-blue-500/30 rounded-full flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400 "></div>
                         <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Live Sync</span>
                     </div>
                 </div>
@@ -2132,7 +2212,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                         <div className="flex flex-col items-center justify-center mb-4">
                             <div className="flex items-baseline gap-2 mb-2">
                                 <h3 className="text-6xl font-black text-white tracking-tighter drop-shadow-2xl">
-                                    {Math.round(percentage)}%
+                                    {Math.round(displayPercentage)}%
                                 </h3>
                                 <span className="text-sm font-bold text-blue-200/50 uppercase tracking-widest">Achieved</span>
                             </div>
@@ -2144,22 +2224,34 @@ export default function Dashboard({ salesmanID, authUID }) {
                                 className="h-full bg-gradient-to-r from-blue-500 via-indigo-400 to-cyan-400 shadow-[0_0_20px_rgba(59,130,246,0.6)] transition-all duration-1000 ease-out relative"
                                 style={{ width: `${percentage}%` }}
                             >
-                                <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                                <div className="absolute inset-0 bg-white/20 "></div>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-slate-900/40 p-4 rounded-2xl border border-white/5 backdrop-blur-md">
+                            <div className="bg-slate-900/40 p-4 rounded-2xl border border-white/5 ">
                                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Monthly Goal</p>
                                 <p className="text-lg font-black text-white">₹{Number(monthly_target).toLocaleString('en-IN')}</p>
                             </div>
-                            <div className="bg-slate-900/40 p-4 rounded-2xl border border-white/5 backdrop-blur-md">
+                            <div className="bg-slate-900/40 p-4 rounded-2xl border border-white/5 ">
                                 <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Done</p>
                                 <p className="text-lg font-black text-emerald-300">₹{Number(total_achieved).toLocaleString('en-IN')}</p>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                {availableDailyRoutes.length > 0 && !selectedRoute && !selectedDailyRoute && (
+                    <div className="w-full space-y-3 mb-4 animate-in slide-in-from-bottom duration-700">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                            <div className="w-12 h-[1px] bg-gradient-to-r from-transparent to-emerald-500/40"></div>
+                            <div className="bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+                                <h3 className="text-emerald-400 text-[10px] font-black uppercase tracking-[0.4em]">Delivery Hub</h3>
+                            </div>
+                            <div className="w-12 h-[1px] bg-gradient-to-l from-transparent to-emerald-500/40"></div>
+                        </div>
+                    </div>
+                )}
 
                 {/* BADGE / ACHIEVEMENTS SECTION */}
                 {targetData?.awards?.length > 0 && (
@@ -2274,7 +2366,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                 {view === 'PORTFOLIO' && <PortfolioView />}
                 {view === 'BOUNCE' && (
                     <div className="h-[60vh] flex flex-col items-center justify-center text-center p-6">
-                        <div className="p-6 bg-slate-800 rounded-full mb-6 animate-pulse">
+                        <div className="p-6 bg-slate-800 rounded-full mb-6 ">
                             <AlertCircle size={40} className="text-orange-500" />
                         </div>
                         <h2 className="text-2xl font-bold text-white">Cheque Bounce</h2>

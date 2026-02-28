@@ -14,17 +14,17 @@ const NewSplash = ({ onFinish }) => {
                     clearInterval(interval);
                     return 100;
                 }
-                // Even slower increments for a cinematic feel
-                return prev + (Math.random() > 0.7 ? 2 : 1);
+                // Much faster increments to reduce blocking LCP
+                return prev + 15;
             });
-        }, 300); // Increased from 200ms to 300ms
+        }, 40);
 
-        // Extended status text updates
+        // Accelerated status text updates
         const statusTimers = [
-            setTimeout(() => setStatus("Handshaking Secure Protocols..."), 3000),
-            setTimeout(() => setStatus("Decrypting User Session..."), 7000),
-            setTimeout(() => setStatus("Synchronizing Cloud Database..."), 12000),
-            setTimeout(() => setStatus("JARWIS PRO SYSTEM READY"), 17000),
+            setTimeout(() => setStatus("Handshaking Secure Protocols..."), 100),
+            setTimeout(() => setStatus("Decrypting User Session..."), 200),
+            setTimeout(() => setStatus("Synchronizing Cloud Database..."), 300),
+            setTimeout(() => setStatus("JARWIS PRO SYSTEM READY"), 400),
         ];
 
         return () => {
@@ -39,11 +39,10 @@ const NewSplash = ({ onFinish }) => {
         if (progress >= 100) {
             setTimeout(() => {
                 setIsExiting(true);
-                // Give time for exit animation before unmounting
                 setTimeout(() => {
                     if (onFinish) onFinish();
-                }, 800);
-            }, 500);
+                }, 300);
+            }, 100);
         }
     }, [progress, onFinish]);
 

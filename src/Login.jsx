@@ -108,7 +108,7 @@ export default function Login({ onLoginSuccess }) {
             <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[100px] pointer-events-none"></div>
             <div className="absolute top-[20%] left-[20%] w-[300px] h-[300px] bg-indigo-500/10 rounded-full blur-[80px] pointer-events-none"></div>
 
-            <div className="w-full max-w-[340px] bg-slate-900/40 border border-white/10 p-8 rounded-[3rem] shadow-[0_0_50px_-10px_rgba(79,70,229,0.3)] backdrop-blur-xl relative z-10 text-center overflow-hidden ring-1 ring-white/5">
+            <div className="w-full max-w-[340px] min-h-[560px] bg-slate-900/40 border border-white/10 p-8 rounded-[3rem] shadow-[0_0_50px_-10px_rgba(79,70,229,0.3)] backdrop-blur-xl relative z-10 text-center ring-1 ring-white/5">
                 <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-transparent via-indigo-500 to-transparent opacity-80"></div>
 
                 <div className="mb-8 relative">

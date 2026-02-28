@@ -14,7 +14,8 @@ const CompanyDetailsModal = ({ isOpen, onClose, company, reactiveTargets, compan
     // Calculate totals
     const totalTarget = relevantSalesmen.reduce((sum, s) => sum + Number(s.monthly_target || 0), 0);
     const totalAchieved = relevantSalesmen.reduce((sum, s) => sum + Number(s.achieved || 0), 0);
-    const totalPercentage = totalTarget > 0 ? Math.min(Math.round((totalAchieved / totalTarget) * 100), 100) : 0;
+    const totalDisplayPercentage = totalTarget > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
+    const totalPercentage = Math.min(totalDisplayPercentage, 100);
 
     return (
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center p-4 sm:p-6 overflow-hidden">
@@ -63,7 +64,7 @@ const CompanyDetailsModal = ({ isOpen, onClose, company, reactiveTargets, compan
                             <div className={`px-2.5 py-1 rounded-lg border flex items-center gap-2 ${totalPercentage >= 100
                                 ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
                                 : 'bg-blue-500/10 text-blue-500 border-blue-500/20'}`}>
-                                <span className="text-[10px] font-black tracking-widest">{totalPercentage}%</span>
+                                <span className="text-[10px] font-black tracking-widest">{totalDisplayPercentage}%</span>
                             </div>
                         </div>
                     </div>
@@ -91,7 +92,8 @@ const CompanyDetailsModal = ({ isOpen, onClose, company, reactiveTargets, compan
                         relevantSalesmen.sort((a, b) => (b.achieved || 0) - (a.achieved || 0)).map((s, idx) => {
                             const target = Number(s.monthly_target || 0);
                             const achieved = Number(s.achieved || 0);
-                            const percentage = target > 0 ? Math.min(Math.round((achieved / target) * 100), 100) : 0;
+                            const displayPercentage = target > 0 ? Math.round((achieved / target) * 100) : 0;
+                            const percentage = Math.min(displayPercentage, 100);
 
                             return (
                                 <div key={idx} className="space-y-2 group/item bg-white/5 p-3.5 rounded-2xl border border-white/5 hover:border-white/10 transition-all duration-300">
@@ -124,7 +126,7 @@ const CompanyDetailsModal = ({ isOpen, onClose, company, reactiveTargets, compan
                                             ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
                                             : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
                                             <div className={`w-1 h-1 rounded-full ${percentage >= 100 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`}></div>
-                                            <span className="text-[9px] font-black">{percentage}%</span>
+                                            <span className="text-[9px] font-black">{displayPercentage}%</span>
                                         </div>
                                     </div>
                                 </div>

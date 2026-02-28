@@ -71,7 +71,8 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                 bill_date: bill.Date || null,
                 total_bill_amount: bill.Amount,
                 shop_id: bill.shop_id || bill.id || bill.ShopID || null,
-                points_awarded: ptsToAward || 0
+                points_awarded: ptsToAward || 0,
+                ...(bill._isDeliveryConsole ? { is_delivery: true } : {})
             };
 
             let docId = "offline_" + Date.now();
@@ -94,15 +95,18 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
 
             // PREPARE WHATSAPP MESSAGE (BUT DON'T OPEN YET)
             if (bill.Phone && bill.Phone.length === 10) {
-                const totalAmt = Number(bill.Amount);
-                const paidAmt = Number(amount);
-                const balanceAmt = totalAmt - paidAmt;
+                const totalAmt = Number(bill.Amount) || (bill.totalAmount || 0); // Handle both single bill and multi-bill shop total
+                const currentPaidAmt = Number(amount);
+                const prevPaidAmt = Number(bill.previouslyPaidAmount || 0);
+                const totalPaidSoFar = prevPaidAmt + currentPaidAmt;
+                const balanceAmt = totalAmt - totalPaidSoFar;
                 const today = new Date().toLocaleDateString('en-IN');
 
                 const message = `*BIJU TRADERS - PAYMENT RECEIPT*\n\n` +
                     `👤 *Party:* ${bill.Party}\n` +
-                    `💰 *Total Amount:* ₹${totalAmt.toLocaleString('en-IN')}\n` +
-                    `✅ *Paid Amount:* ₹${paidAmt.toLocaleString('en-IN')}\n` +
+                    `💰 *Total Outstanding:* ₹${totalAmt.toLocaleString('en-IN')}\n` +
+                    (prevPaidAmt > 0 ? `⏮️ *Previously Paid:* ₹${prevPaidAmt.toLocaleString('en-IN')}\n` : '') +
+                    `✅ *Current Payment:* ₹${currentPaidAmt.toLocaleString('en-IN')}\n` +
                     `⚖️ *Balance Amount:* ₹${balanceAmt.toLocaleString('en-IN')}\n` +
                     `👤 *Salesman:* ${salesmanID.toUpperCase()}\n` +
                     `💳 *Mode:* ${type}\n` +

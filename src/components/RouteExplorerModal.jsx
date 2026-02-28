@@ -38,12 +38,10 @@ export default function RouteExplorerModal({ isOpen, onClose, salesmenData, allP
     const activeSalesmanId = (forceSalesmanId || selectedSalesman || '').trim().toUpperCase();
     const salesman = salesmenData.find(s => s.id.trim().toUpperCase() === activeSalesmanId);
 
-    // Filter payments for this salesman today
-    const todayStr = new Date().toLocaleDateString('en-CA');
+    // Filter pending payments for this salesman
     const salesmanPayments = allPayments.filter(p =>
         (p.salesman || '').trim().toUpperCase() === activeSalesmanId &&
-        p.timestamp && typeof p.timestamp.toDate === 'function' &&
-        p.timestamp.toDate().toLocaleDateString('en-CA') === todayStr
+        (p.status || '').toLowerCase() === 'pending'
     );
 
     // Extract unique routes for the selected salesman

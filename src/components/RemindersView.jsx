@@ -384,9 +384,9 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
     const eligibleCount = displayData.filter(i => (viewMode === 'individual' ? i.phoneNormalized : i.phone).length >= 10).length;
 
     return (
-        <div className="flex flex-col h-full animate-fade-in max-w-2xl mx-auto">
+        <div className="flex flex-col h-full animate-fade-in max-w-4xl mx-auto w-full">
             {/* COMPACT NO-SCROLL HEADER */}
-            <div className="shrink-0 z-40 bg-[#0F172A]/95 backdrop-blur-xl py-0.5 px-4 border-b border-white/5 shadow-xl space-y-1 mb-1">
+            <div className="shrink-0 z-40 bg-[#0F172A]/95 backdrop-blur-xl py-1 sm:py-2 px-4 sm:px-5 border-b border-white/5 shadow-xl space-y-1 mb-1">
 
                 {/* Row 1: Title + Actions */}
                 <div className="flex items-center gap-2">
@@ -394,15 +394,15 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                         <ArrowLeft size={14} />
                     </button>
                     <div className="flex-1 min-w-0">
-                        <h3 className="text-[9px] font-black text-[#60A5FA] uppercase tracking-[0.2em] truncate">WhatsApp Reminders</h3>
-                        <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest truncate">
+                        <h3 className="text-[10px] sm:text-[11px] font-black text-[#60A5FA] uppercase tracking-[0.2em] truncate">WhatsApp Reminders</h3>
+                        <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest truncate">
                             {viewMode === 'individual' ? `Found ${displayData.length} Bills` : `Found ${displayData.length} Groups`}
                         </p>
                     </div>
                     {eligibleCount > 0 && (
                         <button
                             onClick={handleSendBatch}
-                            className="bg-red-500 hover:bg-red-600 text-white px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest transition-all shadow-lg shadow-red-500/20 active:scale-95 border-b-2 border-red-700 whitespace-nowrap"
+                            className="bg-red-500 hover:bg-red-600 text-white px-1.5 py-px rounded text-[7px] font-black uppercase tracking-widest transition-all shadow-lg shadow-red-500/20 active:scale-95 border-b-2 border-red-700 whitespace-nowrap"
                         >
                             Send All ({eligibleCount}) 🚀
                         </button>
@@ -467,7 +467,7 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                             placeholder="Search..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 hover:bg-white/10 rounded py-1 pl-6 pr-2 text-[8px] font-bold text-white placeholder-slate-600 outline-none focus:border-[#60A5FA]/50 transition-all"
+                            className="w-full bg-slate-950/50 border border-white/5 hover:bg-white/10 rounded-xl sm:rounded-2xl py-2 pl-8 pr-3 text-[10px] sm:text-[11px] font-bold text-white placeholder-slate-600 outline-none focus:border-[#60A5FA]/50 transition-all shadow-inner"
                         />
                     </div>
                     <div className="col-span-2 relative">
@@ -476,7 +476,7 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                             type="number"
                             value={minDays}
                             onChange={(e) => setMinDays(Number(e.target.value))}
-                            className="w-full bg-white/5 border border-white/10 hover:bg-white/10 rounded py-1 pl-5 pr-1 text-[8px] font-bold text-white text-right outline-none focus:border-[#60A5FA]/50"
+                            className="w-full bg-slate-950/50 border border-white/5 hover:bg-white/10 rounded-xl sm:rounded-2xl py-2 pl-7 pr-2 text-[10px] sm:text-[11px] font-bold text-white text-right outline-none focus:border-[#60A5FA]/50 transition-all"
                         />
                     </div>
                     <div className="col-span-2 relative">
@@ -485,14 +485,14 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                             type="number"
                             value={maxDays}
                             onChange={(e) => setMaxDays(Number(e.target.value))}
-                            className="w-full bg-white/5 border border-white/10 hover:bg-white/10 rounded py-1 pl-5 pr-1 text-[8px] font-bold text-white text-right outline-none focus:border-[#60A5FA]/50"
+                            className="w-full bg-slate-950/50 border border-white/5 hover:bg-white/10 rounded-xl sm:rounded-2xl py-2 pl-7 pr-2 text-[10px] sm:text-[11px] font-bold text-white text-right outline-none focus:border-[#60A5FA]/50 transition-all"
                         />
                     </div>
 
                     <div className="col-span-6 relative">
                         <button
                             onClick={() => setShowSalesmanModal(true)}
-                            className="w-full bg-white/5 border border-white/10 hover:bg-white/10 rounded py-1 pl-2 pr-1 text-[8px] font-bold text-white outline-none focus:border-[#60A5FA]/50 text-left flex items-center justify-between group transition-colors"
+                            className="w-full bg-slate-950/50 border border-white/5 hover:bg-white/10 rounded-xl sm:rounded-2xl py-2 px-3 text-[10px] sm:text-[11px] font-bold text-white outline-none focus:border-[#60A5FA]/50 text-left flex items-center justify-between group transition-all"
                         >
                             <div className="flex items-center gap-1 min-w-0">
                                 <Filter size={8} className="text-slate-500 group-hover:text-[#60A5FA] transition-colors my-auto" />
@@ -506,7 +506,7 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                     <div className="col-span-6 relative">
                         <button
                             onClick={() => setShowRouteModal(true)}
-                            className="w-full bg-white/5 border border-white/10 hover:bg-white/10 rounded py-1 pl-2 pr-1 text-[8px] font-bold text-white outline-none focus:border-[#60A5FA]/50 text-left flex items-center justify-between group transition-colors"
+                            className="w-full bg-slate-950/50 border border-white/5 hover:bg-white/10 rounded-xl sm:rounded-2xl py-2 px-3 text-[10px] sm:text-[11px] font-bold text-white outline-none focus:border-[#60A5FA]/50 text-left flex items-center justify-between group transition-all"
                         >
                             <div className="flex items-center gap-1 min-w-0">
                                 <MapPin size={8} className="text-slate-500 group-hover:text-[#60A5FA] transition-colors my-auto" />
@@ -550,14 +550,14 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                     const days = viewMode === 'individual' ? item.days : item.oldestDays;
 
                     return (
-                        <div key={id} className={`group relative overflow-hidden backdrop-blur-md border transition-all duration-300 ${item.isInRoute ? 'border-[#25D366]/30 bg-[#25D366]/5' : 'border-white/5 bg-slate-900/40 hover:bg-slate-800/60 hover:border-white/10'} rounded-xl p-3 shadow-sm hover:shadow-md`}>
+                        <div key={id} className={`group relative overflow-hidden backdrop-blur-md border transition-all duration-300 ${item.isInRoute ? 'border-[#25D366]/30 bg-[#25D366]/5' : 'border-white/5 bg-slate-900/40 hover:bg-slate-800/60 hover:border-white/10'} rounded-[1.25rem] p-3 sm:p-4 shadow-sm hover:shadow-md`}>
                             {/* Decorative Glow */}
                             <div className={`absolute -top-10 -right-10 w-24 h-24 blur-[60px] rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none ${item.isInRoute ? 'bg-[#25D366]/20' : 'bg-blue-500/20'}`}></div>
 
                             {/* Top Row: Name & Amount */}
-                            <div className="flex justify-between items-start gap-2 mb-2 relative z-10">
+                            <div className="flex justify-between items-start gap-2 mb-3 relative z-10">
                                 <div className="min-w-0 flex-1">
-                                    <h4 className="text-xs font-black text-white uppercase tracking-tight truncate leading-tight">
+                                    <h4 className="text-[13px] sm:text-[15px] font-black text-white uppercase tracking-tight truncate leading-tight">
                                         {viewMode === 'individual' ? item.Party : item.party}
                                     </h4>
                                     <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-slate-400 font-medium">
@@ -566,7 +566,7 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                                     </div>
                                 </div>
                                 <div className="text-right shrink-0">
-                                    <p className="text-sm font-black text-white tracking-tighter">
+                                    <p className="text-lg sm:text-xl font-black text-white px-3 py-1 bg-white/5 rounded-xl border border-white/5 tracking-tighter">
                                         ₹{(viewMode === 'individual' ? Number(item.Amount || 0) : item.totalAmount).toLocaleString('en-IN')}
                                     </p>
                                     <div className={`flex items-center justify-end gap-1 text-[8px] font-bold ${days > 30 ? 'text-red-400' : 'text-amber-400'}`}>
@@ -577,8 +577,8 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                             </div>
 
                             {/* Middle Row: Badges & Info */}
-                            <div className="flex items-center gap-1.5 mb-2 relative z-10">
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 ${hasPhone ? (viewMode === 'grouped' ? 'bg-[#25D366]/10 border-[#25D366]/20 text-[#25D366]' : 'bg-blue-500/10 border-blue-500/20 text-blue-400') : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                            <div className="flex items-center gap-1.5 mb-3 relative z-10">
+                                <div className={`w-8 h-8 rounded-[10px] flex items-center justify-center border shrink-0 ${hasPhone ? (viewMode === 'grouped' ? 'bg-[#25D366]/10 border-[#25D366]/20 text-[#25D366]' : 'bg-blue-500/10 border-blue-500/20 text-blue-400') : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
                                     {viewMode === 'grouped' ? <Layers size={14} /> : (hasPhone ? <MessageSquare size={14} /> : <AlertTriangle size={14} />)}
                                 </div>
 
@@ -631,7 +631,7 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                                     </span>
 
                                     {phone && (
-                                        <span className="text-[8px] font-bold px-1.5 py-px rounded border bg-emerald-500/5 text-emerald-500 border-emerald-500/10 ml-auto flex items-center gap-1">
+                                        <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-px rounded border bg-emerald-500/5 text-emerald-500 border-emerald-500/10 ml-auto flex items-center gap-1">
                                             <Phone size={6} />
                                             {phone}
                                         </span>
@@ -672,7 +672,7 @@ export default function RemindersView({ salesmenData, onBack, masterPlans, allPa
                                                 <button
                                                     key={t.id}
                                                     onClick={() => handleSend(item, t.id)}
-                                                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tight transition-all active:scale-95 border ${isSentToday
+                                                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-tight transition-all active:scale-95 border ${isSentToday
                                                         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]'
                                                         : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10 hover:text-white hover:border-white/10'
                                                         }`}

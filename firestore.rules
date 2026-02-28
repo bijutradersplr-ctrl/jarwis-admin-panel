@@ -1,4 +1,4 @@
-rules_version = '2';
+﻿rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // 1. Users Collection
@@ -34,6 +34,17 @@ service cloud.firestore {
     // 6. Pending Updates (Phone Verification)
     match /pending_updates/{updateID} {
       allow read, create, update, delete: if request.auth != null;
+    }
+
+    // 7. Daily Deliveries
+    match /daily_deliveries/{deliveryID} {
+       allow read, write: if request.auth != null;
+    }
+
+    // 8. Daily Deliveries (New)
+    // Allows salesmen to see and lock their daily routes
+    match /daily_deliveries/{deliveryID} {
+       allow read, write: if request.auth != null;
     }
   }
 }

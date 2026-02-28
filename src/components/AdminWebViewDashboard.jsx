@@ -1,8 +1,74 @@
 import React, { useMemo } from 'react';
 import {
     LogOut, Wallet, FileText, RefreshCw, TrendingUp, Compass, ArrowRight, Check, MapPin, Zap, AlertCircle, Smartphone,
-    ShieldCheck, Clock, Settings, Users, BarChart3, Bell, Trophy, LayoutDashboard, Banknote, Landmark
+    ShieldCheck, Clock, Settings, Users, BarChart3, Bell, Trophy, LayoutDashboard, Banknote, Landmark, UploadCloud
 } from 'lucide-react';
+
+import RemindersView from './RemindersView';
+
+const getTodayRouteStats = (salesmenData, masterPlans, allPayments) => {
+    let totalLiability = 0;
+    let collectedValue = 0;
+
+    const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const todayName = days[new Date().getDay()];
+    const todayStr = new Date().toLocaleDateString('en-CA');
+
+    const normalizeRoute = (r) => {
+        if (!r) return "";
+        return String(r).trim().replace(/\s+/g, ' ').toUpperCase();
+    };
+
+    // 1. Identify Today's Active Routes and Calculate Total Liability
+    (salesmenData || []).forEach(salesman => {
+        const sId = salesman.id.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const plan = masterPlans[sId];
+
+        if (plan) {
+            const routes = plan.routes || plan.Routes || {};
+            // Try different case variations that might be in the database
+            const assignedRoute = routes[todayName] ||
+                routes[todayName.toLowerCase()] ||
+                routes[todayName.charAt(0).toUpperCase() + todayName.slice(1)];
+
+            if (assignedRoute && assignedRoute !== "Select Route" && assignedRoute !== "No Routes Loaded") {
+                const targetRoute = normalizeRoute(assignedRoute);
+
+                // Sum the outstanding balance for this specific route for this salesman
+                const routeBills = (salesman.bills || []).filter(b => normalizeRoute(b.Route) === targetRoute);
+                totalLiability += routeBills.reduce((sum, b) => sum + (Number(b.Balance) || Number(b.Amount) || 0), 0);
+            }
+        }
+    });
+
+    // 2. Calculate Collected Value for these specific routes today
+    (allPayments || []).forEach(p => {
+        if (!p.timestamp) return;
+        const pDateStr = p.timestamp.toDate().toLocaleDateString('en-CA');
+
+        if (pDateStr === todayStr) {
+            const sId = (p.salesman || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const plan = masterPlans[sId];
+
+            if (plan) {
+                const routes = plan.routes || plan.Routes || {};
+                const assignedRoute = routes[todayName] ||
+                    routes[todayName.toLowerCase()] ||
+                    routes[todayName.charAt(0).toUpperCase() + todayName.slice(1)];
+
+                const targetRoute = normalizeRoute(assignedRoute);
+                const paymentRoute = normalizeRoute(p.route || p.Route);
+
+                // Only count collections made on the route assigned for today
+                if (targetRoute && paymentRoute === targetRoute) {
+                    collectedValue += Number(p.amount || 0);
+                }
+            }
+        }
+    });
+
+    return { collectedValue, remainingValue: Math.max(0, totalLiability - collectedValue), totalLiability };
+};
 
 export default function AdminWebViewDashboard({
     allPayments,
@@ -21,6 +87,7 @@ export default function AdminWebViewDashboard({
     isRefreshing,
     viewMode,
     setViewMode,
+    fetchError,
     setSelectedCompanyData,
     setIsCompanyModalOpen,
     setIsOutstandingModalOpen,
@@ -56,6 +123,7 @@ export default function AdminWebViewDashboard({
     const sidebarLinks = [
         { label: 'Dashboard', icon: LayoutDashboard, view: 'DASHBOARD', menu: 'MAIN' },
         { label: 'Pending Approvals', icon: Clock, view: 'PENDING_APPROVALS', menu: 'MAIN', badge: pendingCount, color: 'orange' },
+        { label: 'Data Upload', icon: UploadCloud, view: 'FRONT_OFFICE_UPLOAD', menu: 'MAIN' },
         { label: 'Sales History', icon: FileText, view: 'SUMMARY_LIST', menu: 'MAIN' },
         { label: 'Master Settings', icon: Settings, view: 'DASHBOARD', menu: 'MASTER' },
         { label: 'Leaderboard', icon: Trophy, view: 'LEADERBOARD', menu: 'MAIN' },
@@ -66,6 +134,19 @@ export default function AdminWebViewDashboard({
 
     return (
         <div className="pl-64 min-h-screen overflow-y-auto bg-[#020617] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#020617] to-[#020617] text-slate-200">
+            {fetchError && (
+                <div className="fixed top-6 right-6 z-50 animate-in fade-in slide-in-from-top-4 duration-500">
+                    <div className="bg-rose-500/10 backdrop-blur-xl border border-rose-500/20 px-6 py-4 rounded-3xl flex items-center gap-4 shadow-[0_20px_40px_rgba(225,29,72,0.2)]">
+                        <div className="w-10 h-10 bg-rose-500 rounded-full flex items-center justify-center shadow-lg shadow-rose-500/20">
+                            <AlertCircle size={20} className="text-white" />
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-0.5">System Alert</p>
+                            <p className="text-sm font-bold text-rose-200">{fetchError}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
             {/* Fixed Sidebar */}
             <div className="w-72 bg-[#020617]/80 backdrop-blur-3xl border-r border-white/5 flex flex-col h-screen fixed left-0 top-0 z-40 transition-all duration-300 shadow-[10px_0_30px_rgba(0,0,0,0.5)]">
                 {/* Decorative glow in sidebar */}
@@ -73,7 +154,7 @@ export default function AdminWebViewDashboard({
 
                 <div className="p-8 pb-6 shrink-0 flex items-center justify-center relative z-10">
                     <div className="flex flex-col items-center">
-                        <div className="flex items-center gap-3 mb-2 relative group cursor-default">
+                        <div className="flex items-center gap-3 mb-3 relative group cursor-default">
                             <div className="absolute -inset-2 bg-gradient-to-r from-blue-600 via-indigo-500 to-blue-600 rounded-lg blur opacity-40 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-gradient-x"></div>
                             <div className="relative bg-slate-900 p-2 rounded-xl border border-white/10 shadow-2xl">
                                 <ShieldCheck size={24} className="text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
@@ -205,22 +286,31 @@ export default function AdminWebViewDashboard({
             </div>
 
             {/* Main Content Area */}
-            {view === 'DASHBOARD' && dashboardMenu === 'MAIN' ? (
-                <div className="p-6 max-w-7xl mx-auto space-y-6">
+            {view === 'REMINDERS' ? (
+                <div className="p-6 max-w-[90rem] mx-auto h-full">
+                    <RemindersView
+                        salesmenData={salesmenData}
+                        onBack={() => setView('DASHBOARD')}
+                        masterPlans={masterPlans}
+                        allPayments={allPayments}
+                    />
+                </div>
+            ) : view === 'DASHBOARD' && dashboardMenu === 'MAIN' ? (
+                <div className="p-6 max-w-[90rem] mx-auto space-y-8">
                     {/* Header Area */}
-                    <div className="bg-gradient-to-br from-slate-900/80 to-[#020617]/90 p-5 lg:p-6 rounded-[2rem] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden backdrop-blur-3xl group transition-all duration-500 hover:border-blue-500/20">
+                    <div className="bg-slate-900/40 backdrop-blur-3xl p-8 lg:p-12 rounded-[2.5rem] lg:rounded-[3.5rem] border border-white/10 hover:border-white/20 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.7)] ring-1 ring-inset ring-white/10 relative overflow-hidden backdrop-blur-3xl group transition-all duration-500 hover:border-blue-500/20">
                         {/* Dynamic Background Glows */}
                         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 blur-[100px] -mr-32 -mt-32 rounded-full pointer-events-none group-hover:bg-blue-500/15 transition-colors duration-700"></div>
-                        <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-500/10 blur-[80px] -ml-20 -mb-20 rounded-full pointer-events-none group-hover:bg-indigo-500/15 transition-colors duration-700"></div>
+                        <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-500/10 blur-[80px] -ml-20 -mb-30 rounded-full pointer-events-none group-hover:bg-indigo-500/15 transition-colors duration-700"></div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10">
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center relative z-10">
                             {/* Amount and Pending Info (Full width) */}
                             <div className="lg:col-span-12 flex flex-col items-center text-center">
                                 <div className="inline-flex items-center gap-2 bg-slate-800/50 border border-white/5 px-2.5 py-1 rounded-full mb-3 shadow-inner">
                                     <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
                                     <p className="text-slate-300 text-[10px] uppercase tracking-[0.2em] font-black">Live Total Intake</p>
                                 </div>
-                                <p className="text-4xl lg:text-5xl xl:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-slate-400 tracking-tighter drop-shadow-xl select-all mb-1">
+                                <p className="text-6xl lg:text-[5rem] xl:text-[6.5rem] leading-none font-black drop-shadow-2xl text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-slate-400 tracking-tighter drop-shadow-xl select-all mb-1">
                                     ₹{(stats.totalCollectedToday || 0).toLocaleString('en-IN')}
                                 </p>
                                 <p className="text-[10px] font-bold text-slate-500 tracking-wide mb-4">Collected Today Across All Brands</p>
@@ -229,33 +319,33 @@ export default function AdminWebViewDashboard({
                                 <div className="flex flex-wrap justify-center gap-3 mb-6 w-full max-w-2xl">
                                     <button
                                         onClick={() => playSound('click')}
-                                        className="flex-1 min-w-[120px] bg-white/5 backdrop-blur-md border border-white/5 p-3 rounded-xl flex flex-col items-center group/mini hover:bg-white/[0.08] hover:border-emerald-500/20 transition-all duration-300 active:scale-95"
+                                        className="flex-1 min-w-[140px] bg-slate-800/50 backdrop-blur-2xl border border-white/10 p-5 lg:p-6 rounded-3xl flex flex-col items-center group/mini shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_10px_20px_rgba(0,0,0,0.2)] hover:bg-white/[0.08] hover:border-emerald-500/20 transition-all duration-300 active:scale-95"
                                     >
-                                        <div className="flex items-center gap-2 mb-2">
+                                        <div className="flex items-center gap-2 mb-3">
                                             <Banknote size={14} className="text-emerald-400 group-hover/mini:scale-110 transition-transform" />
                                             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Cash</span>
                                         </div>
-                                        <p className="text-lg font-black text-white italic">₹{(stats.cashToday || 0).toLocaleString('en-IN')}</p>
+                                        <p className="text-2xl lg:text-3xl font-black text-white italic drop-shadow-md">₹{(stats.cashToday || 0).toLocaleString('en-IN')}</p>
                                     </button>
                                     <button
                                         onClick={() => playSound('click')}
-                                        className="flex-1 min-w-[120px] bg-white/5 backdrop-blur-md border border-white/5 p-3 rounded-xl flex flex-col items-center group/mini hover:bg-white/[0.08] hover:border-sky-500/20 transition-all duration-300 active:scale-95"
+                                        className="flex-1 min-w-[140px] bg-slate-800/50 backdrop-blur-2xl border border-white/10 p-5 lg:p-6 rounded-3xl flex flex-col items-center group/mini shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_10px_20px_rgba(0,0,0,0.2)] hover:bg-white/[0.08] hover:border-sky-500/20 transition-all duration-300 active:scale-95"
                                     >
-                                        <div className="flex items-center gap-2 mb-2">
+                                        <div className="flex items-center gap-2 mb-3">
                                             <Smartphone size={14} className="text-sky-400 group-hover/mini:scale-110 transition-transform" />
                                             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">UPI</span>
                                         </div>
-                                        <p className="text-lg font-black text-white italic">₹{(stats.upiToday || 0).toLocaleString('en-IN')}</p>
+                                        <p className="text-2xl lg:text-3xl font-black text-white italic drop-shadow-md">₹{(stats.upiToday || 0).toLocaleString('en-IN')}</p>
                                     </button>
                                     <button
                                         onClick={() => { playSound('click'); setIsChequeModalOpen(true); }}
-                                        className="flex-1 min-w-[120px] bg-white/5 backdrop-blur-md border border-white/5 p-3 rounded-xl flex flex-col items-center group/mini hover:bg-white/[0.08] hover:border-purple-500/20 transition-all duration-300 active:scale-95 shadow-lg hover:shadow-purple-500/10"
+                                        className="flex-1 min-w-[140px] bg-slate-800/50 backdrop-blur-2xl border border-white/10 p-5 lg:p-6 rounded-3xl flex flex-col items-center group/mini shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_10px_20px_rgba(0,0,0,0.2)] hover:bg-white/[0.08] hover:border-purple-500/20 transition-all duration-300 active:scale-95 shadow-lg hover:shadow-purple-500/10"
                                     >
-                                        <div className="flex items-center gap-2 mb-2">
+                                        <div className="flex items-center gap-2 mb-3">
                                             <Landmark size={14} className="text-purple-400 group-hover/mini:scale-110 transition-transform" />
                                             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Cheque</span>
                                         </div>
-                                        <p className="text-lg font-black text-white italic">₹{(stats.chequeToday || 0).toLocaleString('en-IN')}</p>
+                                        <p className="text-2xl lg:text-3xl font-black text-white italic drop-shadow-md">₹{(stats.chequeToday || 0).toLocaleString('en-IN')}</p>
                                     </button>
                                 </div>
 
@@ -263,13 +353,13 @@ export default function AdminWebViewDashboard({
                                     <div className="absolute -inset-1 bg-gradient-to-r from-orange-600 via-amber-500 to-orange-600 rounded-3xl blur opacity-30 group-hover/btn:opacity-60 transition duration-500 animate-pulse"></div>
                                     <button
                                         onClick={() => { playSound('click'); setView('PENDING_APPROVALS'); }}
-                                        className="relative bg-gradient-to-br from-slate-900 to-slate-800 px-5 py-3 rounded-2xl border border-orange-500/30 shadow-[0_10px_30px_rgba(249,115,22,0.15)] flex items-center gap-4 hover:scale-105 active:scale-95 transition-all duration-300"
+                                        className="relative bg-slate-900/80 backdrop-blur-xl px-8 py-4 lg:px-10 lg:py-5 rounded-[2rem] border border-orange-500/40 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_15px_40px_rgba(249,115,22,0.2)] flex items-center gap-4 hover:scale-105 active:scale-95 transition-all duration-300"
                                     >
                                         <div className="flex items-center gap-3">
-                                            <span className="text-2xl font-black text-orange-400 drop-shadow-[0_0_10px_rgba(249,115,22,0.5)]">{pendingCount}</span>
+                                            <span className="text-3xl lg:text-4xl font-black text-orange-400 drop-shadow-[0_0_15px_rgba(249,115,22,0.6)]">{pendingCount}</span>
                                             {pendingCount > 0 && <Clock className="text-orange-400/50 animate-bounce" size={20} />}
                                         </div>
-                                        <span className="text-[10px] font-black text-orange-200/80 uppercase tracking-[0.2em] relative z-10">Pending Verifications</span>
+                                        <span className="text-xs lg:text-sm font-black text-orange-200 uppercase tracking-[0.25em] relative z-10 drop-shadow-md">Pending Verifications</span>
                                     </button>
                                 </div>
                             </div>
@@ -277,7 +367,7 @@ export default function AdminWebViewDashboard({
                     </div>
 
                     {/* 2-Column Content Grid */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
                         {/* LEFT COLUMN: Brand Targets (60% width = cols-7) */}
                         <div className="lg:col-span-7 flex flex-col gap-6">
                             <div className="flex items-center gap-3 mb-4">
@@ -302,7 +392,8 @@ export default function AdminWebViewDashboard({
                                                 a += Number(targetRow.achieved || 0);
                                             }
                                         });
-                                        const percentage = t === 0 ? 0 : Math.min(Math.round((a / t) * 100), 100);
+                                        const displayPercentage = t === 0 ? 0 : Math.round((a / t) * 100);
+                                        const percentage = Math.min(displayPercentage, 100);
 
                                         if (t === 0) return null;
 
@@ -314,84 +405,143 @@ export default function AdminWebViewDashboard({
                                                     setSelectedCompanyData({ name: company, color: config.color, glow: config.glow });
                                                     setIsCompanyModalOpen(true);
                                                 }}
-                                                className="bg-slate-900/40 backdrop-blur-3xl border border-white/5 rounded-3xl p-5 shadow-lg relative overflow-hidden group cursor-pointer hover:bg-slate-800/80 hover:border-white/10 active:scale-[0.98] transition-all duration-300 transform hover:-translate-y-1 hover:shadow-[0_20px_40px_rgba(0,0,0,0.4)]"
+                                                className="bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl p-5 relative overflow-hidden group cursor-pointer hover:bg-slate-800/80 hover:border-white/10 active:scale-[0.99] transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg"
                                             >
-                                                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-[30px] -mr-16 -mt-16 pointer-events-none group-hover:bg-white/10 transition-colors duration-500"></div>
-                                                <div className={`absolute bottom-0 right-0 w-32 h-32 opacity-0 group-hover:opacity-20 blur-[40px] rounded-full transition-opacity duration-700 bg-gradient-to-r ${config.color}`}></div>
+                                                {/* Sleek left-border accent */}
+                                                <div className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${config.color} opacity-70 group-hover:opacity-100 transition-opacity`} style={{ boxShadow: `0 0 12px ${config.glow}` }}></div>
 
-                                                <div className="flex items-center justify-between xl:justify-start xl:gap-6 mb-3">
-                                                    <span className={`text-[12px] font-black uppercase tracking-[0.2em] ${config.text} drop-shadow-sm flex items-center gap-2`}>
-                                                        {company} <span className="opacity-50 tracking-[0.1em]">OVERALL</span>
-                                                    </span>
+                                                {/* Subtle ambient glow */}
+                                                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-48 h-48 bg-white/5 rounded-full blur-[50px] pointer-events-none group-hover:bg-white/10 transition-colors duration-500"></div>
 
-                                                    <div className="px-3 py-1 rounded-full border border-white/10 bg-slate-950/80 flex items-center gap-2 shadow-inner group-hover:bg-slate-900 transition-colors ml-auto">
-                                                        <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${config.color} animate-pulse`} style={{ boxShadow: `0 0 10px ${config.glow}` }}></div>
-                                                        <span className="text-[10px] font-black tracking-widest text-white">{percentage}%</span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-end justify-between mb-3 relative z-10">
+                                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-3 mb-4 relative z-10 pl-2">
                                                     <div>
-                                                        <span className="text-2xl lg:text-3xl font-black text-white tracking-tighter drop-shadow-lg block group-hover:text-slate-100 transition-colors">
-                                                            ₹{a.toLocaleString('en-IN')}
+                                                        <span className={`text-[11px] sm:text-[12px] font-black uppercase tracking-[0.2em] ${config.text} drop-shadow-sm flex items-center gap-1.5 mb-1`}>
+                                                            {company} <span className="opacity-60 text-slate-400">TARGET</span>
                                                         </span>
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-3xl sm:text-4xl font-black text-white tracking-tighter drop-shadow-md group-hover:text-slate-50 transition-colors leading-none">
+                                                                ₹{a.toLocaleString('en-IN')}
+                                                            </span>
+                                                            <span className="text-xs sm:text-sm font-bold text-slate-500 tracking-wider">
+                                                                / ₹{t.toLocaleString('en-IN')}
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <span className="text-slate-500 text-[9px] font-black tracking-[0.2em] uppercase opacity-80 block mb-1">Target Limit</span>
-                                                        <span className="text-base font-black text-slate-300 drop-shadow-sm group-hover:text-white transition-colors">₹{t.toLocaleString('en-IN')}</span>
+
+                                                    <div className="flex items-center gap-3 shrink-0 self-start sm:self-auto">
+                                                        <div className={`px-2.5 py-1 rounded-md border border-white/5 bg-slate-950/50 flex items-center gap-1.5 shadow-inner`}>
+                                                            <div className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${config.color} animate-pulse`} style={{ boxShadow: `0 0 8px ${config.glow}` }}></div>
+                                                            <span className="text-[11px] font-black tracking-widest text-white">{displayPercentage}%</span>
+                                                        </div>
                                                     </div>
                                                 </div>
 
-                                                <div className="h-1.5 w-full bg-slate-950 rounded-full overflow-hidden border border-white/5 relative shadow-inner">
-                                                    <div
-                                                        className={`h-full bg-gradient-to-r ${config.color} transition-all duration-1000 relative overflow-hidden`}
-                                                        style={{ width: `${percentage}%`, boxShadow: `0 0 15px ${config.glow}` }}
-                                                    >
-                                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" style={{ backgroundSize: '200% 100%' }}></div>
+                                                <div className="pl-2 relative z-10">
+                                                    <div className="h-1 w-full bg-slate-950/80 rounded-full overflow-hidden border border-white/5 shadow-inner relative">
+                                                        <div
+                                                            className={`absolute top-0 bottom-0 left-0 bg-gradient-to-r ${config.color} transition-all duration-1000`}
+                                                            style={{ width: `${percentage}%`, boxShadow: `0 0 10px ${config.glow}` }}
+                                                        >
+                                                            <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
                                         );
                                     })
                                 ) : (
-                                    <div className="bg-slate-900/40 p-12 rounded-[2.5rem] border border-white/5 text-center flex flex-col items-center shadow-xl">
-                                        <AlertCircle size={48} className="text-slate-600 mb-4" />
-                                        <h3 className="text-slate-400 font-bold uppercase tracking-widest text-base">No Active Brand Performance Data</h3>
+                                    <div className="bg-slate-900/40 p-10 rounded-2xl border border-white/5 text-center flex flex-col items-center shadow-xl">
+                                        <AlertCircle size={40} className="text-slate-600 mb-3" />
+                                        <h3 className="text-slate-400 font-bold uppercase tracking-widest text-sm">No Active Brand Performance Data</h3>
                                     </div>
                                 )}
                             </div>
                         </div>
 
                         {/* RIGHT COLUMN: Outstanding (40% width) */}
-                        <div className="lg:col-span-5 flex flex-col gap-6">
-                            <div className="flex items-center gap-3 mb-4">
+                        <div className="lg:col-span-5 flex flex-col gap-5">
+                            <div className="flex items-center gap-3 mb-2 lg:mb-4">
                                 <div className="p-2 bg-emerald-500/20 rounded-xl border border-emerald-500/30">
-                                    <Wallet size={24} className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+                                    <Wallet size={20} className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
                                 </div>
-                                <h2 className="text-2xl font-black text-white tracking-tight uppercase">Flow Summary</h2>
+                                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight uppercase">Flow Summary</h2>
                             </div>
 
-                            {/* Total Outstanding Card */}
-                            <button
-                                onClick={() => { playSound('click'); setIsOutstandingModalOpen(true); }}
-                                className="group bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 p-5 rounded-3xl relative overflow-hidden text-left hover:bg-slate-800 transition-all duration-300 shadow-2xl active:scale-[0.98] hover:border-rose-500/30 hover:shadow-[0_10px_30px_rgba(225,29,72,0.15)]"
-                            >
-                                <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 rounded-full blur-[40px] pointer-events-none group-hover:bg-rose-500/20 transition-all duration-500"></div>
-                                <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-500/10 rounded-full blur-[30px] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
+                            {/* Market Exposure Wrapper */}
+                            <div className="bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 relative overflow-hidden group cursor-pointer hover:bg-slate-800/80 hover:border-white/10 active:scale-[0.99] transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg flex flex-col justify-center min-h-[140px]" onClick={() => { playSound('click'); setIsTotalOutstandingModalOpen(true); }}>
+                                {/* Sleek left-border accent */}
+                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-orange-400 to-red-500 opacity-70 group-hover:opacity-100 transition-opacity" style={{ boxShadow: `0 0 12px rgba(249,115,22,0.5)` }}></div>
 
-                                <div className="flex items-center gap-2 mb-4 relative z-10">
-                                    <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shadow-[0_0_8px_rgba(225,29,72,0.8)]"></div>
-                                    <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Market Exposure</p>
+                                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-48 h-48 bg-white/5 rounded-full blur-[50px] pointer-events-none group-hover:bg-white/10 transition-colors duration-500"></div>
+                                <div className="absolute bottom-0 right-0 w-32 h-32 bg-orange-500/10 blur-[40px] rounded-full group-hover:bg-orange-500/20 transition-colors duration-700 pointer-events-none"></div>
+
+                                <div className="flex items-end justify-between relative z-10 pl-2">
+                                    <div className="flex flex-col gap-1.5">
+                                        <span className="text-[11px] sm:text-[12px] font-black uppercase tracking-[0.2em] text-orange-400 drop-shadow-sm flex items-center gap-1.5 mb-1.5">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse shadow-[0_0_8px_#f97316]"></div> Market Exposure
+                                        </span>
+                                        <span className="text-3xl sm:text-4xl font-black text-white tracking-tighter drop-shadow-md group-hover:text-slate-50 transition-colors whitespace-nowrap leading-none">
+                                            ₹{(stats.totalPending - Math.round(stats.totalCollectedToday)).toLocaleString('en-IN')}
+                                        </span>
+                                    </div>
+                                    <div className="p-2.5 rounded-xl border border-white/5 bg-slate-950/50 text-slate-400 group-hover:text-white group-hover:bg-slate-900 group-hover:border-white/20 transition-all shadow-inner">
+                                        <ArrowRight size={16} />
+                                    </div>
                                 </div>
+                            </div>
 
-                                <p className="text-2xl lg:text-3xl font-black text-white tracking-tighter drop-shadow-lg group-hover:text-rose-100 transition-colors relative z-10">
-                                    ₹{(stats.totalPending - stats.totalCollectedToday).toLocaleString('en-IN')}
-                                </p>
+                            {/* --- NEW: TODAY'S TOTAL OUTSTANDING (Sleek Desktop Version) --- */}
+                            {(() => {
+                                const { collectedValue, remainingValue, totalLiability } = getTodayRouteStats(salesmenData, masterPlans, allPayments);
+                                const percentage = totalLiability > 0 ? Math.min(Math.round((collectedValue / totalLiability) * 100), 100) : 0;
 
-                                <div className="absolute bottom-6 right-6 w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-slate-500 group-hover:bg-rose-500 group-hover:text-white group-hover:border-rose-500 transition-all duration-300 shadow-lg transform group-hover:-translate-y-1">
-                                    <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-                                </div>
-                            </button>
+                                return (
+                                    <div
+                                        onClick={() => { playSound('click'); setIsTodayOutstandingModalOpen(true); }}
+                                        className="bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 relative overflow-hidden group cursor-pointer hover:bg-slate-800/80 hover:border-white/10 active:scale-[0.99] transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg flex flex-col justify-center min-h-[140px]"
+                                    >
+                                        {/* Sleek left-border accent */}
+                                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-purple-500 to-pink-500 opacity-70 group-hover:opacity-100 transition-opacity" style={{ boxShadow: `0 0 12px rgba(168,85,247,0.5)` }}></div>
+
+                                        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-48 h-48 bg-white/5 rounded-full blur-[50px] pointer-events-none group-hover:bg-white/10 transition-colors duration-500"></div>
+                                        <div className="absolute bottom-0 right-0 w-32 h-32 bg-purple-500/10 blur-[40px] rounded-full group-hover:bg-purple-500/20 transition-colors duration-700 pointer-events-none"></div>
+
+                                        <div className="flex flex-col sm:flex-row justify-between items-start gap-4 sm:gap-6 relative z-10 pl-2 w-full">
+                                            <div className="flex flex-col gap-1.5 flex-1 w-full justify-center">
+                                                <div className="flex items-center justify-between mb-1.5 w-full">
+                                                    <span className="text-[11px] sm:text-[12px] font-black uppercase tracking-[0.2em] text-purple-400 drop-shadow-sm flex items-center gap-1.5 flex-1 truncate">
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse shadow-[0_0_8px_#a855f7] shrink-0"></div> <span className="truncate w-full">TODAY'S OUTSTANDING</span>
+                                                    </span>
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="px-2.5 py-1 rounded-md border border-white/5 bg-slate-950/50 flex items-center gap-1.5 shadow-inner shrink-0 hidden sm:flex">
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 animate-pulse" style={{ boxShadow: '0 0 8px rgba(168,85,247,0.5)' }}></div>
+                                                            <span className="text-[10px] font-black tracking-widest text-white">{percentage}% COLLECTED</span>
+                                                        </div>
+                                                        <div className="p-2 rounded-xl border border-white/5 bg-slate-950/50 text-slate-400 group-hover:text-white group-hover:bg-slate-900 group-hover:border-white/20 transition-all shadow-inner shrink-0">
+                                                            <ArrowRight size={16} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-baseline gap-2 mb-2">
+                                                    <span className="text-3xl sm:text-4xl font-black text-white tracking-tighter drop-shadow-md group-hover:text-slate-50 transition-colors whitespace-nowrap leading-none flex-1 truncate">
+                                                        ₹{remainingValue.toLocaleString('en-IN')}
+                                                    </span>
+                                                </div>
+
+                                                <div className="h-1 w-full bg-slate-950/80 rounded-full overflow-hidden border border-white/5 shadow-inner relative max-w-[95%] mt-1 mb-2">
+                                                    <div
+                                                        className={`absolute top-0 bottom-0 left-0 bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-1000`}
+                                                        style={{ width: `${percentage}%`, boxShadow: `0 0 10px rgba(168,85,247,0.5)` }}
+                                                    >
+                                                        <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     </div>
                 </div>

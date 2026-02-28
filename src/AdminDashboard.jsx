@@ -47,11 +47,14 @@ import RouteExplorerModal from './components/RouteExplorerModal';
 import RemindersView from './components/RemindersView';
 import TargetSettingsView from './components/TargetSettingsView';
 import RouteMasterPlanView from './components/RouteMasterPlanView';
-import CollectionAnalytics from './components/CollectionAnalytics';
 import LeaderboardView from './components/LeaderboardView';
 import CompanyDetailsModal from './components/CompanyDetailsModal';
-import DataManagerModal from './components/DataManagerModal';
 import AdminWebViewDashboard from './components/AdminWebViewDashboard';
+import FrontOfficeUpload from './components/FrontOfficeUpload';
+
+// Lazy loaded heavy components
+const CollectionAnalytics = React.lazy(() => import('./components/CollectionAnalytics'));
+const DataManagerModal = React.lazy(() => import('./components/DataManagerModal'));
 
 const ADMIN_SOUNDS = {
     success: '/sounds/success.mp3', // Kaching
@@ -133,9 +136,13 @@ export default function AdminDashboard({ adminName }) {
 
     const fetchData = async () => {
         setIsRefreshing(true);
-
-        // Manual trigger often not needed with onSnapshot, but kept for UI Refresh button
-        setIsRefreshing(false);
+        try {
+            // Manual trigger often not needed with onSnapshot, but kept for UI Refresh button
+            // We can add a small delay to show visual feedback
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        } finally {
+            setIsRefreshing(false);
+        }
     };
 
     useEffect(() => {
@@ -153,6 +160,9 @@ export default function AdminDashboard({ adminName }) {
             });
             setSalesmenData(sData);
             setStats(prev => ({ ...prev, totalPending, activeSalesmen: sData.length }));
+        }, (error) => {
+            console.error("Error fetching outstanding data:", error);
+            setFetchError("Failed to load outstanding data. Please check your connection or permissions.");
         });
 
         // 2. Listen to Active Payments (Optimized Query)
@@ -195,6 +205,10 @@ export default function AdminDashboard({ adminName }) {
                 chequeToday
             }));
             setLoading(false);
+        }, (error) => {
+            console.error("Error fetching payments:", error);
+            setFetchError("Failed to load payment data. You might be missing a Firestore index.");
+            setLoading(false);
         });
 
         // 3. Listen to Master Plans
@@ -204,6 +218,8 @@ export default function AdminDashboard({ adminName }) {
                 pPlans[doc.id.toUpperCase().replace(/[^A-Z0-9]/g, '')] = doc.data();
             });
             setMasterPlans(pPlans);
+        }, (error) => {
+            console.error("Error fetching master plans:", error);
         });
 
         // 4. Listen to Users/Targets
@@ -272,6 +288,8 @@ export default function AdminDashboard({ adminName }) {
             }
 
             setSalesmenTargets(finalTargets);
+        }, (error) => {
+            console.error("Error fetching users/targets:", error);
         });
 
         setSalesmenData([]); // Clear previous if needed
@@ -283,6 +301,8 @@ export default function AdminDashboard({ adminName }) {
                 upd.push({ id: doc.id, ...doc.data() });
             });
             setPendingUpdates(upd);
+        }, (error) => {
+            console.error("Error fetching updates:", error);
         });
 
         return () => {
@@ -497,7 +517,9 @@ export default function AdminDashboard({ adminName }) {
             // 1. Update party_directory
             const partyKey = sanitizeKey(update.party);
             await setDoc(doc(db, "party_directory", partyKey), {
-                phone: update.new_value,
+                Party: update.party, // Needed by python sync script
+                Phone: update.new_value, // Capital P needed by python script
+                phone: update.new_value, // Keep lowercase for backwards compatibility just in case
                 updatedBy: update.salesman_id || update.salesman_name || 'Admin',
                 updatedAt: serverTimestamp()
             }, { merge: true });
@@ -657,6 +679,7 @@ export default function AdminDashboard({ adminName }) {
                     isRefreshing={isRefreshing}
                     viewMode={viewMode}
                     setViewMode={setViewMode}
+                    fetchError={fetchError}
                     setSelectedCompanyData={setSelectedCompanyData}
                     setIsCompanyModalOpen={setIsCompanyModalOpen}
                     setIsOutstandingModalOpen={setIsOutstandingModalOpen}
@@ -695,6 +718,10 @@ export default function AdminDashboard({ adminName }) {
                                 setView={setView}
                                 handleApprovePayment={handleApprovePayment}
                                 handleRejectPayment={handleRejectPayment}
+                                playSound={playSound}
+                            />}
+                            {view === 'FRONT_OFFICE_UPLOAD' && <FrontOfficeUpload
+                                setView={setView}
                                 playSound={playSound}
                             />}
                             {view === 'TARGETS' && <TargetSettingsView onBack={() => setView('DASHBOARD')} salesmenData={salesmenData} allPayments={allPayments} masterPlans={masterPlans} />}
@@ -742,7 +769,16 @@ export default function AdminDashboard({ adminName }) {
                                             <h3 className="text-xl font-black text-white uppercase tracking-tight">Performance Analysis</h3>
                                         </div>
                                     </div>
-                                    <CollectionAnalytics allPayments={allPayments} salesmenTargets={reactiveTargets} />
+                                    <React.Suspense fallback={
+                                        <div className="flex items-center justify-center p-12">
+                                            <div className="flex flex-col items-center gap-4">
+                                                <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+                                                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Loading Analytics Engine...</p>
+                                            </div>
+                                        </div>
+                                    }>
+                                        <CollectionAnalytics allPayments={allPayments} salesmenTargets={reactiveTargets} />
+                                    </React.Suspense>
                                 </div>
                             )}
                             {view === 'REMINDERS' && (
@@ -991,7 +1027,16 @@ export default function AdminDashboard({ adminName }) {
                 masterPlans={masterPlans}
             />
             {isDataManagerOpen && (
-                <DataManagerModal isOpen={isDataManagerOpen} onClose={() => setIsDataManagerOpen(false)} />
+                <React.Suspense fallback={
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm">
+                        <div className="bg-slate-900 border border-white/10 p-8 rounded-3xl flex flex-col items-center gap-4 shadow-2xl">
+                            <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
+                            <p className="text-white font-black uppercase tracking-widest text-xs">Loading Data Engine...</p>
+                        </div>
+                    </div>
+                }>
+                    <DataManagerModal isOpen={isDataManagerOpen} onClose={() => setIsDataManagerOpen(false)} />
+                </React.Suspense>
             )}
             <ChequeDetailsModal isOpen={isChequeModalOpen} onClose={() => setIsChequeModalOpen(false)} allPayments={allPayments} viewMode={viewMode} />
         </>
@@ -1907,7 +1952,8 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
                                             </div>
                                             <div className="flex-1 flex flex-col justify-center space-y-3 sm:space-y-7">
                                                 {Object.entries(companyGroups).filter(([_, data]) => data.target > 0).map(([name, data]) => {
-                                                    const percentage = data.target > 0 ? Math.min(Math.round((data.achieved / data.target) * 100), 100) : 0;
+                                                    const displayPercentage = data.target > 0 ? Math.round((data.achieved / data.target) * 100) : 0;
+                                                    const percentage = Math.min(displayPercentage, 100);
                                                     return (
                                                         <div
                                                             key={name}
@@ -1935,7 +1981,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
                                                             </div>
                                                             <div className="flex justify-center -mt-0.5">
                                                                 <span className="text-[8px] font-black text-amber-500 tracking-[0.2em] bg-amber-500/10 px-3 py-0.5 rounded-full border border-amber-500/20 shadow-lg group-hover/comp:bg-amber-500/20 transition-all">
-                                                                    {percentage}% ACHIEVED
+                                                                    {displayPercentage}% ACHIEVED
                                                                 </span>
                                                             </div>
                                                         </div>

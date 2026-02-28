@@ -15,10 +15,12 @@ const SplashScreen = React.lazy(() => import('./components/SplashScreen'));
 const APP_VERSION = '1.1.1';
 
 function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => localStorage.getItem('jarwis_user'));
   const [authUID, setAuthUID] = useState(null);
-  const [role, setRole] = useState(null);
+  const [role, setRole] = useState(() => localStorage.getItem('jarwis_role'));
   const [loading, setLoading] = useState(true);
+  const [authResolved, setAuthResolved] = useState(false);
+  const [splashFinished, setSplashFinished] = useState(false);
   const [isOutdated, setIsOutdated] = useState(false);
   const [error, setError] = useState(null);
 
@@ -68,7 +70,7 @@ function App() {
     const timeout = setTimeout(() => {
       if (loading) {
         console.warn("⚠️ [Auth] Connection Timeout reached. Forcing UI reveal.");
-        setLoading(false);
+        setAuthResolved(true); // Set authResolved even on timeout
       }
     }, 10000);
 
@@ -112,7 +114,7 @@ function App() {
         localStorage.removeItem('jarwis_user');
         localStorage.removeItem('jarwis_role');
       }
-      setLoading(false);
+      setAuthResolved(true);
     });
 
     return () => {
@@ -120,6 +122,18 @@ function App() {
       clearTimeout(timeout);
     };
   }, []);
+
+  // Sync Splash exit with Auth resolution
+  useEffect(() => {
+    const isOptimisticallyLoggedOut = !localStorage.getItem('jarwis_user');
+
+    // If we have no cached user, show Login immediately after splash
+    // If we DO have a cached user, wait for Auth to resolve to prevent flicker
+    if ((authResolved || isOptimisticallyLoggedOut) && splashFinished) {
+      console.log("🔥 [App] Ready to reveal UI. Optimization applied.");
+      setLoading(false);
+    }
+  }, [authResolved, splashFinished]);
 
   const handleLoginSuccess = (salesmanName, userRole) => {
     localStorage.setItem('jarwis_user', salesmanName);
@@ -149,7 +163,7 @@ function App() {
   }
 
   if (loading) {
-    return <NewSplash onFinish={() => setLoading(false)} />;
+    return <NewSplash onFinish={() => setSplashFinished(true)} />;
   }
 
   if (isOutdated) {
