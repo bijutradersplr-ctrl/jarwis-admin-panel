@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     Users,
+    UploadCloud,
     TrendingUp,
     Wallet,
     RefreshCw,
@@ -36,7 +37,9 @@ import {
     History,
     PieChart,
     Banknote,
-    ArrowRight
+    ArrowRight,
+    Zap,
+    PackageX
 } from 'lucide-react';
 
 import { getAuth } from "firebase/auth";
@@ -101,6 +104,7 @@ export default function AdminDashboard({ adminName }) {
     const [stats, setStats] = useState({ totalCollectedToday: 0, totalPending: 0, activeSalesmen: 0 });
     const [masterPlans, setMasterPlans] = useState({});
     const [salesmenTargets, setSalesmenTargets] = useState([]);
+    const [dailyDeliveries, setDailyDeliveries] = useState([]);
     const [isMuted, setIsMuted] = useState(localStorage.getItem('jarwis_admin_muted') === 'true');
 
     // Audio Helpers
@@ -182,18 +186,27 @@ export default function AdminDashboard({ adminName }) {
                 const data = doc.data();
                 pData.push({ id: doc.id, ...data });
 
-                // Company Intake = Total collections today
-                if (data.timestamp && typeof data.timestamp.toDate === 'function') {
-                    const reqDateStr = data.timestamp.toDate().toLocaleDateString('en-CA');
-                    if (reqDateStr === todayStr) {
-                        const amount = Number(data.amount || 0);
-                        collectedToday += amount;
+                if (data.is_delivery) return; // Still exclude from main totals/intake for now if needed, or handle separately
 
-                        const type = (data.payment_type || 'Cash').toLowerCase();
-                        if (type === 'cash') cashToday += amount;
-                        else if (type === 'upi') upiToday += amount;
-                        else if (type === 'cheque') chequeToday += amount;
-                    }
+                // Robust Date Check for Intake Calculation
+                let isToday = false;
+                if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+                    if (data.timestamp.toDate().toLocaleDateString('en-CA') === todayStr) isToday = true;
+                } else if (data.date === todayStr) {
+                    isToday = true;
+                } else if (data.status === 'Pending' && !data.timestamp && !data.date) {
+                    // Fallback for locally created pending items without timestamp yet
+                    isToday = true;
+                }
+
+                if (isToday) {
+                    const amount = Number(data.amount || 0);
+                    collectedToday += amount;
+
+                    const type = (data.payment_type || 'Cash').toLowerCase();
+                    if (type === 'cash') cashToday += amount;
+                    else if (type === 'upi') upiToday += amount;
+                    else if (type === 'cheque') chequeToday += amount;
                 }
             });
             setAllPayments(pData);
@@ -207,11 +220,22 @@ export default function AdminDashboard({ adminName }) {
             setLoading(false);
         }, (error) => {
             console.error("Error fetching payments:", error);
-            setFetchError("Failed to load payment data. You might be missing a Firestore index.");
+            setFetchError("Failed to load payment data.");
             setLoading(false);
         });
 
-        // 3. Listen to Master Plans
+        // 3. Listen to Daily Deliveries (Britannia Loadsheets)
+        const unsubDeliveries = onSnapshot(collection(db, "daily_deliveries"), (snap) => {
+            const dData = [];
+            snap.forEach(doc => {
+                dData.push({ id: doc.id, ...doc.data() });
+            });
+            setDailyDeliveries(dData);
+        }, (error) => {
+            console.error("Error fetching daily deliveries:", error);
+        });
+
+        // 4. Listen to Master Plans
         const unsubPlans = onSnapshot(collection(db, "salesman_master_plan"), (snap) => {
             const pPlans = {};
             snap.forEach(doc => {
@@ -222,7 +246,7 @@ export default function AdminDashboard({ adminName }) {
             console.error("Error fetching master plans:", error);
         });
 
-        // 4. Listen to Users/Targets
+        // 5. Listen to Users/Targets
         const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
             const currentMonth = new Date().toISOString().slice(0, 7);
             const rawTargets = [];
@@ -308,6 +332,7 @@ export default function AdminDashboard({ adminName }) {
         return () => {
             unsubOutstanding();
             unsubPayments();
+            unsubDeliveries();
             unsubPlans();
             unsubUsers();
             unsubUpdates();
@@ -723,6 +748,7 @@ export default function AdminDashboard({ adminName }) {
                             {view === 'FRONT_OFFICE_UPLOAD' && <FrontOfficeUpload
                                 setView={setView}
                                 playSound={playSound}
+                                adminName={adminName}
                             />}
                             {view === 'TARGETS' && <TargetSettingsView onBack={() => setView('DASHBOARD')} salesmenData={salesmenData} allPayments={allPayments} masterPlans={masterPlans} />}
                             {view === 'ROUTE_PLAN' && <RouteMasterPlanView onBack={() => setView('DASHBOARD')} salesmenData={salesmenData} />}
@@ -737,6 +763,17 @@ export default function AdminDashboard({ adminName }) {
                                 setView={(v) => { playSound('pop'); setView(v); }}
                                 approvingId={approvingId}
                                 playSound={playSound}
+                            />}
+                            {view === 'DELIVERY_HUB' && <DeliveryHubView
+                                allPayments={allPayments}
+                                dailyDeliveries={dailyDeliveries}
+                                handleApprovePayment={handleApprovePayment}
+                                handleRejectPayment={handleRejectPayment}
+                                handleMarkReflected={handleMarkReflected}
+                                setView={setView}
+                                approvingId={approvingId}
+                                playSound={playSound}
+                                salesmenData={salesmenData}
                             />}
                             {view === 'LEADERBOARD' && (
                                 <div className="space-y-6 animate-fade-in pb-20">
@@ -1535,25 +1572,8 @@ const getPaymentBadge = (type) => {
 const getReactiveTargets = (salesmenTargets, allPayments) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const results = salesmenTargets.map(t => {
-        // 1. Calculate confirmed collections from digital payments
-        const bankAchieved = allPayments
-            .filter(p => {
-                // Aggressive normalization to match the new salesman_id format
-                const pSid = (p.salesman_id || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-                const pSName = (p.salesman || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-                if (pSid !== t.salesman_id && pSName !== t.salesman_id) return false;
-
-                try {
-                    return p.timestamp?.toDate().toISOString().slice(0, 7) === currentMonth;
-                } catch (e) { return false; }
-            })
-            .reduce((sum, p) => sum + Number(p.amount || 0), 0);
-
-        // 2. Best-of-Two merging: Use current collections OR manually entered total from database
-        const existingTotal = Number(t.total_achieved || 0);
-        const isSameMonth = t.achieved_month === currentMonth;
-        const finalAchieved = isSameMonth ? Math.max(bankAchieved, existingTotal) : bankAchieved;
-
+        // Use strictly the synced Sales figure from the database
+        const finalAchieved = Number(t.total_achieved || 0);
         return { ...t, achieved: finalAchieved, awards: t.awards || [] };
     });
 
@@ -1644,10 +1664,16 @@ const getTodayCollections = (allPayments) => {
     const summary = {};
 
     allPayments.forEach(p => {
-        if (!p.timestamp) return;
-        const pDateStr = p.timestamp.toDate().toLocaleDateString('en-CA');
+        let isToday = false;
+        if (p.timestamp && typeof p.timestamp.toDate === 'function') {
+            if (p.timestamp.toDate().toLocaleDateString('en-CA') === todayStr) isToday = true;
+        } else if (p.date === todayStr) {
+            isToday = true;
+        } else if (p.status === 'Pending' && !p.timestamp && !p.date) {
+            isToday = true;
+        }
 
-        if (pDateStr === todayStr) {
+        if (isToday) {
             const sm = (p.salesman || 'Unknown').trim().toUpperCase();
             if (!summary[sm]) {
                 summary[sm] = {
@@ -1811,55 +1837,69 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
                                     </div>
                                 </div>
 
-                                <div className="flex flex-col gap-3 w-full max-w-sm mx-auto">
-                                    <button
-                                        onClick={() => { playSound('click'); setDashboardMenu('MASTER'); }}
-                                        className="w-full relative group overflow-hidden bg-white/[0.03] backdrop-blur-md border border-white/5 p-4 sm:p-5 rounded-3xl hover:bg-white/[0.08] hover:border-blue-500/30 transition-all active:scale-95 flex items-center justify-between"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 shadow-inner group-hover:scale-110 transition-transform">
-                                                <Settings size={20} className="text-blue-400" />
-                                            </div>
-                                            <div className="text-left">
-                                                <h3 className="text-sm font-black text-white uppercase tracking-tight">Master Settings</h3>
-                                                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 group-hover:text-blue-400/70 transition-colors">Routes & Targets</p>
-                                            </div>
+                                <button
+                                    onClick={() => { playSound('click'); setView('DELIVERY_HUB'); }}
+                                    className="w-full relative group overflow-hidden bg-white/[0.03] backdrop-blur-md border border-white/5 p-4 sm:p-5 rounded-3xl hover:bg-white/[0.08] hover:border-orange-500/30 transition-all active:scale-95 flex items-center justify-between"
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20 shadow-inner group-hover:scale-110 transition-transform">
+                                            <Smartphone size={20} className="text-orange-400" />
                                         </div>
-                                        <ArrowRight size={16} className="text-slate-600 group-hover:text-blue-400 group-hover:translate-x-1 transition-all" />
-                                    </button>
+                                        <div className="text-left">
+                                            <h3 className="text-sm font-black text-white uppercase tracking-tight">Delivery Hub</h3>
+                                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 group-hover:text-orange-400/70 transition-colors">Approve Settlements</p>
+                                        </div>
+                                    </div>
+                                    <ArrowRight size={16} className="text-slate-600 group-hover:text-orange-400 group-hover:translate-x-1 transition-all" />
+                                </button>
 
-                                    <button
-                                        onClick={() => { playSound('click'); setDashboardMenu('REPORTS'); }}
-                                        className="w-full relative group overflow-hidden bg-white/[0.03] backdrop-blur-md border border-white/5 p-4 sm:p-5 rounded-3xl hover:bg-white/[0.08] hover:border-emerald-500/30 transition-all active:scale-95 flex items-center justify-between"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 shadow-inner group-hover:scale-110 transition-transform">
-                                                <LayoutDashboard size={20} className="text-emerald-400" />
-                                            </div>
-                                            <div className="text-left">
-                                                <h3 className="text-sm font-black text-white uppercase tracking-tight">Reports</h3>
-                                                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 group-hover:text-emerald-400/70 transition-colors">Insights & Data</p>
-                                            </div>
+                                <button
+                                    onClick={() => { playSound('click'); setDashboardMenu('MASTER'); }}
+                                    className="w-full relative group overflow-hidden bg-white/[0.03] backdrop-blur-md border border-white/5 p-4 sm:p-5 rounded-3xl hover:bg-white/[0.08] hover:border-blue-500/30 transition-all active:scale-95 flex items-center justify-between"
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 shadow-inner group-hover:scale-110 transition-transform">
+                                            <Settings size={20} className="text-blue-400" />
                                         </div>
-                                        <ArrowRight size={16} className="text-slate-600 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
-                                    </button>
+                                        <div className="text-left">
+                                            <h3 className="text-sm font-black text-white uppercase tracking-tight">Master Settings</h3>
+                                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 group-hover:text-blue-400/70 transition-colors">Routes & Targets</p>
+                                        </div>
+                                    </div>
+                                    <ArrowRight size={16} className="text-slate-600 group-hover:text-blue-400 group-hover:translate-x-1 transition-all" />
+                                </button>
 
-                                    <button
-                                        onClick={() => { playSound('pop'); App.exitApp(); }}
-                                        className="w-full relative group overflow-hidden bg-white/[0.03] backdrop-blur-md border border-white/5 p-4 sm:p-5 rounded-3xl hover:bg-red-500/10 hover:border-red-500/30 transition-all active:scale-95 flex items-center justify-between mt-2"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 rounded-2xl bg-red-500/10 flex items-center justify-center border border-red-500/20 shadow-inner group-hover:scale-110 transition-transform">
-                                                <LogOut size={20} className="text-red-400" />
-                                            </div>
-                                            <div className="text-left">
-                                                <h3 className="text-sm font-black text-white uppercase tracking-tight">Quit App</h3>
-                                                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 group-hover:text-red-400/70 transition-colors">Close System</p>
-                                            </div>
+                                <button
+                                    onClick={() => { playSound('click'); setDashboardMenu('REPORTS'); }}
+                                    className="w-full relative group overflow-hidden bg-white/[0.03] backdrop-blur-md border border-white/5 p-4 sm:p-5 rounded-3xl hover:bg-white/[0.08] hover:border-emerald-500/30 transition-all active:scale-95 flex items-center justify-between"
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 shadow-inner group-hover:scale-110 transition-transform">
+                                            <LayoutDashboard size={20} className="text-emerald-400" />
                                         </div>
-                                        <X size={16} className="text-slate-600 group-hover:text-red-400 transition-colors group-hover:rotate-90" />
-                                    </button>
-                                </div>
+                                        <div className="text-left">
+                                            <h3 className="text-sm font-black text-white uppercase tracking-tight">Reports</h3>
+                                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 group-hover:text-emerald-400/70 transition-colors">Insights & Data</p>
+                                        </div>
+                                    </div>
+                                    <ArrowRight size={16} className="text-slate-600 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
+                                </button>
+
+                                <button
+                                    onClick={() => { playSound('pop'); App.exitApp(); }}
+                                    className="w-full relative group overflow-hidden bg-white/[0.03] backdrop-blur-md border border-white/5 p-4 sm:p-5 rounded-3xl hover:bg-red-500/10 hover:border-red-500/30 transition-all active:scale-95 flex items-center justify-between mt-2"
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-red-500/10 flex items-center justify-center border border-red-500/20 shadow-inner group-hover:scale-110 transition-transform">
+                                            <LogOut size={20} className="text-red-400" />
+                                        </div>
+                                        <div className="text-left">
+                                            <h3 className="text-sm font-black text-white uppercase tracking-tight">Quit App</h3>
+                                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 group-hover:text-red-400/70 transition-colors">Close System</p>
+                                        </div>
+                                    </div>
+                                    <X size={16} className="text-slate-600 group-hover:text-red-400 transition-colors group-hover:rotate-90" />
+                                </button>
                             </div>
                         </div>
 
@@ -2173,7 +2213,7 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
                 <div className="max-w-2xl mx-auto space-y-4 animate-in slide-in-from-right-8 duration-300">
                     <button
                         onClick={() => { playSound('pop'); setDashboardMenu('MAIN'); }}
-                        className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-blue-500/30 rounded-2xl text-[10px) font-black uppercase tracking-[0.2em] text-blue-400 hover:text-white hover:from-blue-600/40 hover:to-indigo-600/40 hover:border-blue-400/50 transition-all active:scale-95 mb-4 shadow-[0_0_20px_rgba(37,99,235,0.1)] backdrop-blur-xl group"
+                        className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-blue-500/30 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] text-blue-400 hover:text-white hover:from-blue-600/40 hover:to-indigo-600/40 hover:border-blue-400/50 transition-all active:scale-95 mb-4 shadow-[0_0_20px_rgba(37,99,235,0.1)] backdrop-blur-xl group"
                     >
                         <ArrowLeft size={14} className="group-hover:-translate-x-1 transition-transform" /> Back to Menu
                     </button>
@@ -2254,13 +2294,18 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
         </div>
     );
 };
-
 const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected, handleApprovePayment, handleRejectPayment, handleApprovePhoneUpdate, handleRejectPhoneUpdate, setView, approvingId, playSound }) => {
-    const [isResetting, setIsResetting] = useState(false);
     const [selectedSalesmanId, setSelectedSalesmanId] = useState(null);
+    const [selectedSettlements, setSelectedSettlements] = useState([]);
+    const [isBulkApproving, setIsBulkApproving] = useState(false);
 
-    const pending = allPayments.filter(p => (p.status || '').toLowerCase() === 'pending');
-    const approved = allPayments.filter(p => (p.status || '').toLowerCase() === 'approved');
+    // Reset selection when changing salesman or view
+    useEffect(() => {
+        setSelectedSettlements([]);
+    }, [selectedSalesmanId, setView]);
+
+    const pending = allPayments.filter(p => (p.status || '').toLowerCase() === 'pending' && !p.is_delivery);
+    const approved = allPayments.filter(p => (p.status || '').toLowerCase() === 'approved' && !p.is_delivery);
 
     const groupPending = pending.reduce((acc, p) => {
         const sid = (p.salesman || 'Unknown').trim().toUpperCase();
@@ -2290,69 +2335,156 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
 
         return (
             <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
-                <div className="flex items-center gap-4 mb-6">
-                    <button onClick={() => { playSound('pop'); setSelectedSalesmanId(null); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 active:scale-95 transition-all shadow-lg backdrop-blur-md">
-                        <ArrowLeft size={20} />
-                    </button>
-                    <div>
-                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-0.5">Viewing Items for</p>
-                        <h3 className="text-lg font-black text-white uppercase tracking-tight">{sid}</h3>
+                <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => { playSound('pop'); setSelectedSalesmanId(null); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 active:scale-95 transition-all shadow-lg backdrop-blur-md">
+                            <ArrowLeft size={20} />
+                        </button>
+                        <div>
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-0.5">Viewing Items for</p>
+                            <h3 className="text-lg font-black text-white uppercase tracking-tight">{sid}</h3>
+                        </div>
                     </div>
+
+                    {!isApprovedList && group.items.length > 0 && (
+                        <button
+                            onClick={() => {
+                                playSound('click');
+                                if (selectedSettlements.length === group.items.length) {
+                                    setSelectedSettlements([]);
+                                } else {
+                                    setSelectedSettlements(group.items.map(p => p.id));
+                                }
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[9px] font-black text-slate-400 uppercase tracking-widest hover:bg-white/10 transition-all active:scale-95"
+                        >
+                            <div className={`w-3.5 h-3.5 rounded border ${selectedSettlements.length === group.items.length ? 'bg-orange-500 border-orange-400 flex items-center justify-center shadow-[0_0_8px_rgba(249,115,22,0.4)]' : 'border-white/20'}`}>
+                                {selectedSettlements.length === group.items.length && <Check size={10} className="text-white" strokeWidth={4} />}
+                            </div>
+                            {selectedSettlements.length === group.items.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                    )}
                 </div>
                 <div className="space-y-2">
-                    {group.items.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).map(p => (
-                        <div key={p.id} className={`bg-slate-900/40 backdrop-blur-3xl p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/10 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 group shadow-lg relative overflow-hidden transition-all duration-300 ${approvingId === p.id ? 'animate-approve' : ''}`}>
-                            <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2 mb-1.5 text-slate-500 font-bold uppercase tracking-widest text-[8px]">
-                                    <span className="bg-white/5 px-1.5 py-0.5 rounded-md">{formatDateShort(p.timestamp)}</span>
-                                    <div className="w-1 h-1 rounded-full bg-slate-800"></div>
-                                    <span className={isApprovedList ? 'line-through' : ''}>Bill: {p.bill_no || 'N/A'}</span>
-                                    {p.route && (
-                                        <>
-                                            <div className="w-1 h-1 rounded-full bg-slate-800"></div>
-                                            <span className="text-blue-400/70">{p.route}</span>
-                                        </>
+                    {group.items.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).map(p => {
+                        const isSelected = selectedSettlements.includes(p.id);
+                        return (
+                            <div
+                                key={p.id}
+                                onClick={() => {
+                                    if (isApprovedList) return;
+                                    playSound('click');
+                                    setSelectedSettlements(prev =>
+                                        prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]
+                                    );
+                                }}
+                                className={`bg-slate-900/40 backdrop-blur-3xl p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 group shadow-lg relative overflow-hidden transition-all duration-300 ${approvingId === p.id ? 'animate-approve' : ''} ${isSelected ? 'border-orange-500/50 bg-orange-500/5' : 'border-white/10'}`}
+                            >
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2 mb-1.5 text-slate-500 font-bold uppercase tracking-widest text-[8px]">
+                                        <span className="bg-white/5 px-1.5 py-0.5 rounded-md">{formatDateShort(p.timestamp)}</span>
+                                        <div className="w-1 h-1 rounded-full bg-slate-800"></div>
+                                        <span className={isApprovedList ? 'line-through' : ''}>Bill: {p.bill_no || 'N/A'}</span>
+                                        {p.route && (
+                                            <>
+                                                <div className="w-1 h-1 rounded-full bg-slate-800"></div>
+                                                <span className="text-blue-400/70">{p.route}</span>
+                                            </>
+                                        )}
+                                    </div>
+                                    <p className={`font-black text-base sm:text-lg tracking-tight leading-tight uppercase mb-2 ${isApprovedList ? 'text-slate-400 line-through' : 'text-slate-100'}`}>
+                                        {p.party}
+                                    </p>
+                                    <div className="flex items-center gap-3">
+                                        {getPaymentBadge(p.payment_type)}
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 border-t sm:border-t-0 border-white/5 pt-3 sm:pt-0 shrink-0">
+                                    {!isApprovedList && (
+                                        <div
+                                            className={`w-6 h-6 rounded-lg border-2 transition-all flex items-center justify-center scale-95 group-hover:scale-105 ${isSelected ? 'bg-orange-500 border-orange-400 shadow-[0_0_15px_rgba(249,115,22,0.6)]' : 'border-white/20 bg-slate-950/80 group-hover:border-orange-500/50'}`}
+                                        >
+                                            {isSelected && <Check size={16} className="text-white" strokeWidth={4} />}
+                                        </div>
+                                    )}
+                                    <div className="text-right">
+                                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5 sm:hidden">Amount</p>
+                                        <p className={`text-xl font-black tracking-tighter italic ${isApprovedList ? 'text-slate-500' : 'text-white'}`}>
+                                            ₹{Number(p.amount || 0).toLocaleString('en-IN')}
+                                        </p>
+                                    </div>
+
+                                    {isApprovedList ? (
+                                        <button onClick={() => handleMarkReflected(p.id, p.amount)} className="bg-white/5 text-slate-400 border border-white/10 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500 hover:text-white transition-all active:scale-95">Mark in Tally</button>
+                                    ) : (
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleRejectPayment(p.id)}
+                                                className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all active:scale-95"
+                                            >
+                                                Reject
+                                            </button>
+                                            <button
+                                                onClick={() => handleApprovePayment(p.id, p.amount, group.name)}
+                                                className="bg-orange-500 text-white px-5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+                                            >
+                                                Approve
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
-                                <p className={`font-black text-base sm:text-lg tracking-tight leading-tight uppercase mb-2 ${isApprovedList ? 'text-slate-400 line-through' : 'text-slate-100'}`}>
-                                    {p.party}
-                                </p>
-                                <div className="flex items-center gap-3">
-                                    {getPaymentBadge(p.payment_type)}
-                                </div>
                             </div>
+                        );
+                    })}
+                </div>
 
-                            <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 border-t sm:border-t-0 border-white/5 pt-3 sm:pt-0 shrink-0">
-                                <div className="text-right">
-                                    <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5 sm:hidden">Amount</p>
-                                    <p className={`text-xl font-black tracking-tighter italic ${isApprovedList ? 'text-slate-500' : 'text-white'}`}>
-                                        ₹{Number(p.amount || 0).toLocaleString('en-IN')}
+                {/* BULK ACTION BAR */}
+                {
+                    selectedSettlements.length > 0 && (
+                        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-xl z-[200] animate-slide-up ">
+                            <div className="bg-slate-950/80 backdrop-blur-2xl border border-orange-500/30 p-4 rounded-[2rem] shadow-2xl flex items-center justify-between gap-4">
+                                <div className="pl-2">
+                                    <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-0.5">{selectedSettlements.length} Selected</p>
+                                    <p className="text-lg font-black text-white tracking-tighter italic">
+                                        ₹{group.items
+                                            .filter(p => selectedSettlements.includes(p.id))
+                                            .reduce((sum, p) => sum + Number(p.amount || 0), 0)
+                                            .toLocaleString('en-IN')}
                                     </p>
                                 </div>
-
-                                {isApprovedList ? (
-                                    <button onClick={() => handleMarkReflected(p.id, p.amount)} className="bg-white/5 text-slate-400 border border-white/10 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500 hover:text-white transition-all active:scale-95">Mark in Tally</button>
-                                ) : (
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => handleRejectPayment(p.id)}
-                                            className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all active:scale-95"
-                                        >
-                                            Reject
-                                        </button>
-                                        <button
-                                            onClick={() => handleApprovePayment(p.id, p.amount, group.name)}
-                                            className="bg-orange-500 text-white px-5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 active:scale-95"
-                                        >
-                                            Approve
-                                        </button>
-                                    </div>
-                                )}
+                                <button
+                                    disabled={isBulkApproving}
+                                    onClick={async (e) => {
+                                        e.stopPropagation();
+                                        setIsBulkApproving(true);
+                                        playSound('success');
+                                        if (window.confirm(`Approve all ${selectedSettlements.length} collections?`)) {
+                                            try {
+                                                const itemsToApprove = group.items.filter(p => selectedSettlements.includes(p.id));
+                                                for (const item of itemsToApprove) {
+                                                    await handleApprovePayment(item.id, item.amount, group.name);
+                                                }
+                                                setSelectedSettlements([]);
+                                            } catch (err) {
+                                                console.error("Bulk approval failed:", err);
+                                            } finally {
+                                                setIsBulkApproving(false);
+                                            }
+                                        } else {
+                                            setIsBulkApproving(false);
+                                        }
+                                    }}
+                                    className="bg-orange-500 active:bg-orange-600 text-white px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-[0.1em] shadow-xl shadow-orange-500/20 flex items-center gap-3 disabled:opacity-50"
+                                >
+                                    {isBulkApproving ? <RefreshCw size={16} className="animate-spin" /> : <Zap size={16} fill="currentColor" />}
+                                    {isBulkApproving ? 'Approving...' : 'Bulk Approve'}
+                                </button>
                             </div>
                         </div>
-                    ))}
-                </div>
-            </div>
+                    )
+                }
+            </div >
         );
     }
 
@@ -2479,6 +2611,556 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
                     </section>
                 )}
             </div>
+        </div>
+    );
+};
+
+const DeliveryHubView = ({ allPayments, dailyDeliveries, handleApprovePayment, handleRejectPayment, handleMarkReflected, setView, approvingId, playSound, salesmenData }) => {
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [selectedRun, setSelectedRun] = useState(null);
+    const [selectedShop, setSelectedShop] = useState(null);
+    const [subView, setSubView] = useState(null); // null | 'KUNNICODU_CASH' | 'RETURNS_TRACKER'
+    const [selectedSettlements, setSelectedSettlements] = useState([]);
+    const [isBulkApproving, setIsBulkApproving] = useState(false);
+
+    // Reset selection when changing views
+    useEffect(() => {
+        setSelectedSettlements([]);
+    }, [selectedUser, selectedRun, selectedShop, subView]);
+
+    const deliveryPayments = allPayments.filter(p => p.is_delivery);
+    const pending = deliveryPayments.filter(p => (p.status || '').toLowerCase() === 'pending');
+    const approved = deliveryPayments.filter(p => (p.status || '').toLowerCase() === 'approved');
+
+    // Grouping for "Pending settlements in Delivery Boy's Hands" - Now by Route
+    const groupPending = pending.reduce((acc, p) => {
+        const route = (p.route || p.Route || 'Unspecified Route').trim().toUpperCase();
+        if (!acc[route]) acc[route] = { name: route, total: 0, items: [] };
+        acc[route].total += Number(p.amount || 0);
+        acc[route].items.push(p);
+        return acc;
+    }, {});
+
+    const groupApproved = approved.reduce((acc, p) => {
+        const route = (p.route || p.Route || 'Unspecified Route').trim().toUpperCase();
+        if (!acc[route]) acc[route] = { name: route, total: 0, items: [] };
+        acc[route].total += Number(p.amount || 0);
+        acc[route].items.push(p);
+        return acc;
+    }, {});
+
+    // Drill down to User's Settlements
+    if (selectedUser) {
+        const isApprovedList = selectedUser.startsWith('approved_');
+        const username = isApprovedList ? selectedUser.replace('approved_', '') : selectedUser;
+        const group = isApprovedList ? groupApproved[username] : groupPending[username];
+
+        if (!group) {
+            setSelectedUser(null);
+            return null;
+        }
+
+        return (
+            <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
+                <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => { playSound('pop'); setSelectedUser(null); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 active:scale-95 transition-all shadow-lg backdrop-blur-md">
+                            <ArrowLeft size={20} />
+                        </button>
+                        <div>
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-0.5">Route Settlement</p>
+                            <h3 className="text-lg font-black text-white uppercase tracking-tight">{username}</h3>
+                        </div>
+                    </div>
+
+                    {!isApprovedList && group.items.length > 0 && (
+                        <button
+                            onClick={() => {
+                                playSound('click');
+                                if (selectedSettlements.length === group.items.length) {
+                                    setSelectedSettlements([]);
+                                } else {
+                                    setSelectedSettlements(group.items.map(p => p.id));
+                                }
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/10 text-[9px] font-black text-slate-400 uppercase tracking-widest hover:bg-white/10 transition-all active:scale-95"
+                        >
+                            <div className={`w-3.5 h-3.5 rounded border ${selectedSettlements.length === group.items.length ? 'bg-blue-600 border-blue-500 flex items-center justify-center' : 'border-white/20'}`}>
+                                {selectedSettlements.length === group.items.length && <Check size={10} className="text-white" />}
+                            </div>
+                            {selectedSettlements.length === group.items.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                    )}
+                </div>
+
+                <div className="space-y-2">
+                    {group.items.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).map(p => {
+                        const isSelected = selectedSettlements.includes(p.id);
+                        return (
+                            <div
+                                key={p.id}
+                                onClick={() => {
+                                    if (isApprovedList) return;
+                                    playSound('click');
+                                    setSelectedSettlements(prev =>
+                                        prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]
+                                    );
+                                }}
+                                className={`bg-slate-900/40 backdrop-blur-3xl p-3 sm:p-4 rounded-xl sm:rounded-2xl border flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 group shadow-lg relative overflow-hidden transition-all duration-300 ${approvingId === p.id ? 'animate-approve' : ''} ${isSelected ? 'border-blue-500/50 bg-blue-500/5' : 'border-white/10'}`}
+                            >
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2 mb-1.5 text-slate-500 font-bold uppercase tracking-widest text-[8px]">
+                                        <span className="bg-white/5 px-1.5 py-0.5 rounded-md">{formatDateShort(p.timestamp)}</span>
+                                        <div className="w-1 h-1 rounded-full bg-slate-800"></div>
+                                        <span className="bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/10">{p.salesman}</span>
+                                        <div className="w-1 h-1 rounded-full bg-slate-800"></div>
+                                        <span className={isApprovedList ? 'line-through' : ''}>Invoice: {p.bill_no || 'N/A'}</span>
+                                        {p.payment_type === 'Less' && (
+                                            <span className="bg-red-500/20 text-red-500 px-1.5 py-0.5 rounded border border-red-500/20">RETURN / LESS</span>
+                                        )}
+                                    </div>
+                                    <p className={`font-black text-base sm:text-lg tracking-tight leading-tight uppercase mb-1 ${isApprovedList ? 'text-slate-400 line-through' : 'text-slate-100'}`}>
+                                        {p.party}
+                                    </p>
+                                    {p.description && (
+                                        <p className="text-[10px] text-slate-400 italic mb-2">"{p.description}"</p>
+                                    )}
+                                    <div className="flex items-center gap-3">
+                                        {getPaymentBadge(p.payment_type)}
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 border-t sm:border-t-0 border-white/5 pt-3 sm:pt-0 shrink-0">
+                                    {!isApprovedList && (
+                                        <div
+                                            className={`w-6 h-6 rounded-lg border-2 transition-all flex items-center justify-center scale-95 group-hover:scale-105 ${isSelected ? 'bg-blue-600 border-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.6)]' : 'border-white/20 bg-slate-950/80 group-hover:border-blue-500/50'}`}
+                                        >
+                                            {isSelected && <Check size={16} className="text-white" strokeWidth={4} />}
+                                        </div>
+                                    )}
+                                    <div className="text-right">
+                                        <p className={`text-xl font-black tracking-tighter italic ${isApprovedList ? 'text-slate-500' : 'text-white'} ${p.payment_type === 'Less' ? 'text-red-400' : ''}`}>
+                                            {p.payment_type === 'Less' ? '-' : ''}₹{Number(p.amount || 0).toLocaleString('en-IN')}
+                                        </p>
+                                    </div>
+
+                                    {isApprovedList ? (
+                                        <button onClick={() => handleMarkReflected(p.id, p.amount)} className="bg-white/5 text-slate-400 border border-white/10 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500 hover:text-white transition-all active:scale-95">Mark Reflected</button>
+                                    ) : (
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleRejectPayment(p.id)}
+                                                className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all active:scale-95"
+                                            >
+                                                Reject
+                                            </button>
+                                            <button
+                                                onClick={() => handleApprovePayment(p.id, p.amount, username)}
+                                                className="bg-blue-600 text-white px-5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20 active:scale-95"
+                                            >
+                                                Approve
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* BULK ACTION BAR */}
+                {selectedSettlements.length > 0 && (
+                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-xl z-[200] animate-slide-up ">
+                        <div className="bg-slate-950/80 backdrop-blur-2xl border border-blue-500/30 p-4 rounded-[2rem] shadow-2xl flex items-center justify-between gap-4">
+                            <div className="pl-2">
+                                <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-0.5">{selectedSettlements.length} Items Selected</p>
+                                <p className="text-lg font-black text-white tracking-tighter italic">
+                                    ₹{group.items
+                                        .filter(p => selectedSettlements.includes(p.id))
+                                        .reduce((sum, p) => sum + Number(p.amount || 0), 0)
+                                        .toLocaleString('en-IN')}
+                                </p>
+                            </div>
+                            <button
+                                disabled={isBulkApproving}
+                                onClick={async (e) => {
+                                    e.stopPropagation();
+                                    setIsBulkApproving(true);
+                                    playSound('success');
+                                    if (window.confirm(`Bulk approve ${selectedSettlements.length} payments?`)) {
+                                        try {
+                                            const paymentsToApprove = group.items.filter(p => selectedSettlements.includes(p.id));
+                                            for (const item of paymentsToApprove) {
+                                                await handleApprovePayment(item.id, item.amount, username);
+                                            }
+                                            setSelectedSettlements([]);
+                                        } catch (err) {
+                                            console.error("Bulk approval failed:", err);
+                                        } finally {
+                                            setIsBulkApproving(false);
+                                        }
+                                    } else {
+                                        setIsBulkApproving(false);
+                                    }
+                                }}
+                                className="bg-blue-600 active:bg-blue-700 text-white px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-[0.1em] shadow-xl shadow-blue-500/20 flex items-center gap-3 disabled:opacity-50"
+                            >
+                                {isBulkApproving ? <RefreshCw size={16} className="animate-spin" /> : <Zap size={16} fill="currentColor" />}
+                                {isBulkApproving ? 'Approving...' : 'Bulk Approve'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // Drill down to Shop Details within a Run
+    if (selectedShop && selectedRun) {
+        const shopName = selectedShop;
+        const bills = selectedRun.shops[shopName] || [];
+
+        return (
+            <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
+                <div className="flex items-center gap-4 mb-6">
+                    <button onClick={() => { playSound('pop'); setSelectedShop(null); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 active:scale-95 transition-all shadow-lg backdrop-blur-md">
+                        <ArrowLeft size={20} />
+                    </button>
+                    <div>
+                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-0.5">Shop Bills</p>
+                        <h3 className="text-lg font-black text-white uppercase tracking-tight">{shopName}</h3>
+                    </div>
+                </div>
+
+                <div className="space-y-3">
+                    {bills.map((b, idx) => {
+                        const coll = deliveryPayments.find(p => String(p.bill_no) === String(b.bill_no || b.invoice_no));
+                        const statusColor = coll?.status === 'Approved' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' :
+                            coll?.status === 'Pending' ? 'bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]' :
+                                'bg-slate-700';
+
+                        return (
+                            <div key={idx} className="bg-slate-900/40 p-5 rounded-3xl border border-white/10 flex justify-between items-center group">
+                                <div>
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 pointer-events-none">Invoice #{b.bill_no || b.invoice_no}</p>
+                                    <p className="text-lg font-black text-white">₹{Number(b.net_amount || b.amount || 0).toLocaleString('en-IN')}</p>
+                                </div>
+                                <div className="text-right flex flex-col items-end gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-2 h-2 rounded-full ${statusColor}`}></div>
+                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{coll?.status || 'Active'}</span>
+                                    </div>
+                                    {coll && (
+                                        <span className="text-[10px] font-bold text-white/40 italic">Coll: ₹{coll.amount.toLocaleString('en-IN')}</span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    // Active Run Overview
+    if (selectedRun) {
+        const shops = Object.entries(selectedRun.shops || {});
+
+        return (
+            <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
+                <div className="flex items-center gap-4 mb-6">
+                    <button onClick={() => { playSound('pop'); setSelectedRun(null); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 active:scale-95 transition-all shadow-lg backdrop-blur-md">
+                        <ArrowLeft size={20} />
+                    </button>
+                    <div>
+                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-0.5">{selectedRun.route_name}</p>
+                        <h3 className="text-lg font-black text-white uppercase tracking-tight">{selectedRun.salesman_name || 'Active Run'}</h3>
+                    </div>
+                </div>
+
+                <div className="grid gap-3">
+                    {shops.map(([shopName, bills]) => {
+                        const totalShopAmt = (bills || []).reduce((s, b) => s + Number(b.net_amount || b.amount || 0), 0);
+                        const shopCollections = deliveryPayments.filter(p => (p.shop_id === shopName || p.party === shopName));
+                        const collectedAmt = shopCollections.reduce((s, p) => s + Number(p.amount || 0), 0);
+                        const isDone = collectedAmt >= totalShopAmt && totalShopAmt > 0;
+
+                        return (
+                            <button
+                                key={shopName}
+                                onClick={() => { playSound('click'); setSelectedShop(shopName); }}
+                                className={`w-full bg-slate-900/40 p-5 rounded-3xl border border-white/10 flex justify-between items-center group transition-all hover:bg-white/5 hover:border-blue-500/30 active:scale-[0.98] ${isDone ? 'opacity-60 grayscale' : ''}`}
+                            >
+                                <div className="text-left">
+                                    <p className="text-white font-black text-sm uppercase tracking-tight group-hover:text-blue-400 transition-colors uppercase">{shopName}</p>
+                                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">
+                                        {bills.length} Bills • <span className="text-slate-400 font-black">₹{totalShopAmt.toLocaleString('en-IN')}</span>
+                                    </p>
+                                </div>
+                                <div className="text-right">
+                                    {collectedAmt > 0 ? (
+                                        <div className="flex flex-col items-end gap-1">
+                                            <span className="text-emerald-400 font-black text-sm">₹{collectedAmt.toLocaleString('en-IN')}</span>
+                                            <span className="text-[7px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded border border-emerald-500/20 uppercase font-black tracking-widest">Received</span>
+                                        </div>
+                                    ) : (
+                                        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-600 group-hover:text-blue-500 group-hover:bg-blue-500/10 transition-all">
+                                            <ArrowRight size={16} />
+                                        </div>
+                                    )}
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    // 2. Returns Tracker View
+    if (subView === 'RETURNS_TRACKER') {
+        const returns = deliveryPayments.filter(p => p.payment_type === 'Less');
+
+        const groupedReturns = returns.reduce((acc, p) => {
+            const r = (p.route || 'Unspecified Route').trim().toUpperCase();
+            if (!acc[r]) acc[r] = {};
+            const s = (p.party || 'Unknown Shop').trim().toUpperCase();
+            if (!acc[r][s]) acc[r][s] = [];
+            acc[r][s].push(p);
+            return acc;
+        }, {});
+
+        return (
+            <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
+                <div className="flex items-center gap-4 mb-6">
+                    <button onClick={() => { playSound('pop'); setSubView(null); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 active:scale-95 transition-all shadow-lg backdrop-blur-md">
+                        <ArrowLeft size={20} />
+                    </button>
+                    <div>
+                        <p className="text-[9px] font-black text-rose-500 uppercase tracking-[0.2em] mb-0.5">Registry</p>
+                        <h3 className="text-lg font-black text-white uppercase tracking-tight">Returns Hub</h3>
+                    </div>
+                </div>
+
+                <div className="space-y-6">
+                    {Object.keys(groupedReturns).length > 0 ? Object.entries(groupedReturns).map(([routeName, shops]) => (
+                        <div key={routeName} className="space-y-3">
+                            <div className="flex items-center gap-2 px-1">
+                                <div className="w-1 h-3 bg-rose-500 rounded-full"></div>
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{routeName}</span>
+                            </div>
+                            <div className="grid gap-2">
+                                {Object.entries(shops).map(([shopName, items]) => (
+                                    <div key={shopName} className="bg-slate-900/40 backdrop-blur-3xl p-5 rounded-3xl border border-white/5 flex justify-between items-center group">
+                                        <div className="flex items-center gap-5">
+                                            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-400 border border-rose-500/20 group-hover:scale-110 transition-transform">
+                                                <PackageX size={22} />
+                                            </div>
+                                            <div>
+                                                <p className="text-slate-100 font-black text-lg tracking-tight uppercase group-hover:text-rose-400 transition-colors leading-tight">{shopName}</p>
+                                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest italic mt-1 truncate max-w-[200px]">
+                                                    {items[0].description || "No description"}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-xl font-black text-white tracking-tighter italic">
+                                                ₹{items.reduce((sum, it) => sum + (Number(it.total_bill_amount || 0) - Number(it.amount || 0)), 0).toLocaleString('en-IN')}
+                                            </p>
+                                            <p className="text-[8px] text-rose-500/60 font-black uppercase tracking-widest mt-1">Bill balance</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )) : (
+                        <div className="bg-white/5 rounded-[2rem] p-12 text-center border border-dashed border-white/10">
+                            <p className="text-slate-600 text-[10px] font-black uppercase tracking-widest">No returns registered</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
+            <div className="flex items-center gap-4 mb-2">
+                <button onClick={() => setView('DASHBOARD')} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/10 transition-all shadow-lg active:scale-95">
+                    <ArrowLeft size={20} />
+                </button>
+                <div className="flex-1 text-center pr-10">
+                    <h3 className="text-xs font-black text-emerald-500 uppercase tracking-[0.4em]">Delivery & Britannia Hub</h3>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 mt-4">
+                <button
+                    onClick={() => { playSound('click'); setSubView('RETURNS_TRACKER'); }}
+                    className="bg-slate-900/60 p-6 rounded-[2.5rem] border border-white/10 flex items-center justify-between active:scale-95 transition-all hover:bg-white/5 group relative overflow-hidden"
+                >
+                    <div className="flex items-center gap-4 relative z-10">
+                        <div className="w-14 h-14 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-500 group-hover:scale-110 transition-transform border border-rose-500/20">
+                            <PackageX size={28} />
+                        </div>
+                        <div className="text-left">
+                            <p className="text-xs font-black text-white uppercase tracking-[0.2em]">Returns Hub</p>
+                            <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">Consolidated Registry</p>
+                        </div>
+                    </div>
+                    <div className="text-right flex items-center gap-2 relative z-10">
+                        <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">View All</span>
+                        <ArrowRight size={16} className="text-slate-600 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                    <div className="absolute bottom-0 right-0 w-32 h-32 bg-rose-500/5 blur-3xl pointer-events-none"></div>
+                </button>
+            </div>
+
+            {/* SECTION 1: ACTIVE DELIVERY TRACK */}
+            <section className="mt-4">
+                <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                        <div className="h-px w-8 bg-blue-500/30"></div>
+                        <h4 className="text-[9px] font-black text-blue-500 uppercase tracking-[0.3em]">Active Live Tracker</h4>
+                        <div className="h-px flex-1 bg-white/5"></div>
+                    </div>
+                    {/* Kunnicodu Shortcut */}
+                    {dailyDeliveries.some(r => (r.route_name || '').toUpperCase().includes('KUNNICODU')) && (
+                        <button
+                            onClick={() => {
+                                const run = dailyDeliveries.find(r => (r.route_name || '').toUpperCase().includes('KUNNICODU'));
+                                if (run) { playSound('click'); setSelectedRun(run); }
+                            }}
+                            className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all active:scale-95 flex items-center gap-1.5"
+                        >
+                            <Zap size={10} fill="currentColor" /> Kunnicodu BT
+                        </button>
+                    )}
+                </div>
+
+                <div className="grid gap-3">
+                    {dailyDeliveries.length > 0 ? (
+                        dailyDeliveries.sort((a, b) => b.last_updated?.toMillis() - a.last_updated?.toMillis()).map(run => {
+                            const shops = Object.entries(run.shops || {});
+                            const totalBills = run.total_bills || shops.reduce((s, [_, b]) => s + b.length, 0);
+                            const calcTotalAmt = run.total_amount || shops.reduce((sum, [_, bills]) => sum + (bills || []).reduce((s, b) => s + Number(b.net_amount || b.amount || 0), 0), 0);
+
+                            // Calculate progress for this run based on deliveryPayments matching branch bills
+                            const runBillIds = shops.flatMap(([_, b]) => b.map(bi => String(bi.bill_no || bi.invoice_no)));
+                            const matchedCollections = deliveryPayments.filter(p => runBillIds.includes(String(p.bill_no)));
+                            const collectedCount = matchedCollections.length;
+                            const progressPct = totalBills > 0 ? (collectedCount / totalBills) * 100 : 0;
+
+                            return (
+                                <button
+                                    key={run.id}
+                                    onClick={() => { playSound('click'); setSelectedRun(run); }}
+                                    className="relative w-full bg-slate-900/60 backdrop-blur-3xl p-6 rounded-[2rem] border border-white/10 text-left overflow-hidden group hover:border-blue-500/40 transition-all hover:bg-white/[0.02]"
+                                >
+                                    <div className="absolute top-0 right-0 w-48 h-48 bg-blue-600/5 blur-[50px] pointer-events-none"></div>
+
+                                    <div className="flex justify-between items-start mb-4 relative z-10">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 rounded-2xl bg-blue-600/10 flex items-center justify-center text-blue-400 border border-blue-600/20 group-hover:scale-110 transition-transform">
+                                                <Compass size={22} className="animate-spin-slow" />
+                                            </div>
+                                            <div>
+                                                <p className="text-white font-black text-lg tracking-tight uppercase group-hover:text-blue-400 transition-colors">{run.route_name}</p>
+                                                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">Salesman: <span className="text-slate-300">{run.salesman_name || 'Assigned'}</span></p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-xl font-black text-white tracking-tighter italic">₹{calcTotalAmt.toLocaleString('en-IN')}</p>
+                                            <p className="text-[8px] text-slate-500 font-black uppercase tracking-widest mt-0.5">Total Loadsheet</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Progress */}
+                                    <div className="relative h-2 bg-slate-950 rounded-full overflow-hidden border border-white/5 mb-2">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-blue-600 to-indigo-500 shadow-[0_0_15px_rgba(59,130,246,0.4)] transition-all duration-1000"
+                                            style={{ width: `${progressPct}%` }}
+                                        ></div>
+                                    </div>
+                                    <div className="flex justify-between items-center px-1">
+                                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{collectedCount} OF {totalBills} BILLS COLLECTED</p>
+                                        <p className="text-[10px] font-black text-blue-400 italic">{Math.round(progressPct)}%</p>
+                                    </div>
+                                </button>
+                            );
+                        })
+                    ) : (
+                        <div className="bg-white/5 rounded-[2rem] p-10 text-center border border-dashed border-white/10 group">
+                            <UploadCloud size={32} className="mx-auto text-slate-700 mb-4 group-hover:text-blue-500 transition-colors" />
+                            <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em]">No loadsheets active for today</p>
+                            <button onClick={() => setView('FRONT_OFFICE_UPLOAD')} className="mt-4 px-6 py-2 bg-blue-600/10 border border-blue-500/20 text-blue-400 text-[9px] font-black uppercase tracking-widest rounded-full hover:bg-blue-600 hover:text-white transition-all">Upload Sheet</button>
+                        </div>
+                    )}
+                </div>
+            </section>
+
+            {/* SECTION 2: PENDING SETTLEMENTS */}
+            <section className="mt-12">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="h-px w-8 bg-orange-500/30"></div>
+                    <h4 className="text-[9px] font-black text-orange-500 uppercase tracking-[0.3em]">Pending Settlements</h4>
+                    <div className="h-px flex-1 bg-white/5"></div>
+                </div>
+
+                <div className="space-y-2">
+                    {Object.values(groupPending).length > 0 ? (
+                        Object.values(groupPending).sort((a, b) => b.total - a.total).map(group => (
+                            <button key={group.name} onClick={() => { playSound('click'); setSelectedUser(group.name); }} className="w-full bg-slate-900/40 backdrop-blur-3xl p-4 sm:p-5 rounded-3xl border border-white/10 flex justify-between items-center group shadow-lg hover:border-orange-500/40 hover:bg-white/[0.05] transition-all active:scale-[0.99] relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 blur-3xl"></div>
+                                <div className="flex items-center gap-5 text-left relative z-10">
+                                    <div className="w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center text-orange-400 border border-orange-500/20 group-hover:scale-110 transition-transform"><MapPin size={22} /></div>
+                                    <div>
+                                        <p className="text-slate-100 font-black text-lg tracking-tight leading-tight uppercase group-hover:text-orange-400 transition-colors">{group.name}</p>
+                                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">{group.items.length} Pending Drops</p>
+                                    </div>
+                                </div>
+                                <div className="text-right relative z-10">
+                                    <p className="text-xl font-black text-white tracking-tighter italic group-hover:scale-110 origin-right transition-transform">₹{group.total.toLocaleString('en-IN')}</p>
+                                </div>
+                            </button>
+                        ))
+                    ) : (
+                        <div className="bg-white/5 rounded-[2.5rem] p-12 text-center border border-white/5">
+                            <CheckCircle2 size={32} className="mx-auto text-emerald-500/40 mb-3" />
+                            <p className="text-slate-600 text-[10px] font-black uppercase tracking-widest">No pending settlements</p>
+                        </div>
+                    )}
+                </div>
+            </section>
+
+            {/* SECTION: DELIVERY HUB RETURNS (REMOVED - MOVED TO SUBVIEW) */}
+
+            {/* SECTION 3: RECENTLY APPROVED */}
+            {Object.values(groupApproved).length > 0 && (
+                <section className="mt-12">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="h-px w-8 bg-emerald-500/30"></div>
+                        <h4 className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.3em]">Recently Approved</h4>
+                        <div className="h-px flex-1 bg-white/5"></div>
+                    </div>
+                    <div className="space-y-2 opacity-80 hover:opacity-100 transition-opacity">
+                        {Object.values(groupApproved).sort((a, b) => b.total - a.total).map(group => (
+                            <button key={group.name} onClick={() => { playSound('click'); setSelectedUser('approved_' + group.name); }} className="w-full bg-slate-900/40 backdrop-blur-3xl p-4 sm:p-5 rounded-2xl border border-white/10 flex justify-between items-center group shadow-md hover:border-emerald-500/30 hover:bg-white/5 transition-all active:scale-[0.99]">
+                                <div className="flex items-center gap-5 text-left">
+                                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20 group-hover:scale-110 transition-transform"><ShieldCheck size={20} /></div>
+                                    <div>
+                                        <p className="text-slate-100 font-black text-sm tracking-tight leading-tight uppercase group-hover:text-emerald-400 transition-colors">{group.name}</p>
+                                        <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">{group.items.length} Approved Items</p>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-lg font-black text-white tracking-tighter italic group-hover:scale-110 origin-right transition-transform">₹{group.total.toLocaleString('en-IN')}</p>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                </section>
+            )}
         </div>
     );
 };

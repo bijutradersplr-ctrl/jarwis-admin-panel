@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Target, Save, Users, AlertCircle, Check, ShieldAlert, Trash2, Plus, X } from 'lucide-react';
+import { ArrowLeft, Target, Save, Users, AlertCircle, Check, ShieldAlert, Trash2, Plus, X, Upload } from 'lucide-react';
 import { collection, updateDoc, doc, getDocs, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase";
 
@@ -9,6 +9,8 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
     const [fetchError, setFetchError] = useState(null);
     const [saving, setSaving] = useState(null);
     const [removing, setRemoving] = useState(null);
+    const [uploading, setUploading] = useState(false);
+    const fileInputRef = React.useRef(null);
 
     // Add Salesman State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -288,6 +290,144 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
         ));
     };
 
+    const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setUploading(true);
+        try {
+            const XLSX = await import('xlsx');
+            const reader = new FileReader();
+
+            reader.onload = async (evt) => {
+                try {
+                    const data = new Uint8Array(evt.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+                    const mapping = {
+                        'ABHIRAM A': 'ABHIRAM NEW'
+                    };
+
+                    let successCount = 0;
+                    const batchPromises = [];
+                    let reportType = 'UNKNOWN';
+
+                    // 1. Detect Report Type from Headers/First Few Rows
+                    for (let i = 0; i < Math.min(10, json.length); i++) {
+                        const row = json[i];
+                        if (!row) continue;
+
+                        const col0 = String(row[0] || '').trim().toLowerCase();
+                        const col1 = String(row[1] || '').trim().toLowerCase();
+
+                        // Cadbury format check (Col 1 header is "Sales Hierarchy" or Row 0 has "Sales Flash Report")
+                        if (col1.includes('sales hierarchy') || String(row[0] || '').toLowerCase().includes('sales flash report')) {
+                            reportType = 'CADBURY';
+                            break;
+                        }
+
+                        // Colgate format check (Col 0 header is "SalesRep")
+                        if (col0 === 'salesrep' || col0.includes('salesrep')) {
+                            reportType = 'COLGATE';
+                            break;
+                        }
+                    }
+
+                    if (reportType === 'UNKNOWN') {
+                        throw new Error('Could not identify the format of the uploaded Excel. It does not match the Cadbury or Colgate formats.');
+                    }
+
+                    console.log(`[Upload] Detected Report Type: ${reportType}`);
+
+                    // 2. Parse Based on Report Type
+                    for (let i = 0; i < json.length; i++) {
+                        const row = json[i];
+                        if (!row || row.length === 0) continue;
+
+                        let salesmanCol = '';
+                        let achievementCol = 0;
+
+                        if (reportType === 'CADBURY') {
+                            // Cadbury: Start from row 5
+                            if (i < 5 || row.length < 8) continue;
+
+                            salesmanCol = String(row[1] || '').trim();
+                            achievementCol = row[7]; // Current Year Value
+
+                            // Exclude subtotals/totals etc
+                            if (!salesmanCol || salesmanCol.toLowerCase() === 'nan' || salesmanCol.includes("Total") || salesmanCol.includes("Code")) {
+                                continue;
+                            }
+                        } else if (reportType === 'COLGATE') {
+                            // Colgate: Header is at row 0, data starts from row 1
+                            if (i < 1 || row.length < 12) continue;
+
+                            salesmanCol = String(row[0] || '').trim();
+                            achievementCol = row[11]; // Invoice rate post upfront
+
+                            // For Colgate, we only care about the "- Total" rows to get the aggregate per salesman
+                            if (!salesmanCol.toLowerCase().endsWith("- total")) {
+                                continue;
+                            }
+
+                            // Clean the name. E.g "S000008820-SANIL.S - Total" -> "SANIL.S"
+                            const parts = salesmanCol.split('-');
+                            if (parts.length >= 2) {
+                                // parts[0] is code, parts[1] is name, parts[2] is Total
+                                salesmanCol = parts[1].trim();
+                            }
+                        }
+
+                        let excelName = salesmanCol.toUpperCase();
+                        let targetName = mapping[excelName] || excelName;
+
+                        let achievementValue = Number(achievementCol);
+                        if (isNaN(achievementValue)) achievementValue = 0;
+
+                        // Find target matching name
+                        const targetUser = targets.find(t => t.name.toUpperCase() === targetName);
+
+                        if (targetUser) {
+                            console.log(`[Sync] Found match for ${targetName}. Previous: ${targetUser.total_achieved}, New: ${achievementValue}`);
+                            const userRef = doc(db, "users", targetUser.id);
+                            batchPromises.push(
+                                updateDoc(userRef, {
+                                    total_achieved: achievementValue,
+                                    achieved_month: new Date().toISOString().slice(0, 7)
+                                })
+                            );
+                            successCount++;
+                        } else {
+                            console.log(`[Warning] No matching user found for mapped name: '${targetName}' (Original: '${excelName}')`);
+                        }
+                    }
+
+                    if (batchPromises.length === 0) {
+                        alert(`No matching salesmen found in the ${reportType} report.`);
+                    } else {
+                        await Promise.all(batchPromises);
+                        alert(`Sync Completed: ${successCount} salesmen targets updated from ${reportType} report.`);
+                    }
+
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                    fetchTargets();
+                } catch (err) {
+                    console.error("Excel processing error:", err);
+                    alert("Error processing Excel: " + err.message);
+                } finally {
+                    setUploading(false);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        } catch (err) {
+            console.error("Failed to load Excel library or process file:", err);
+            alert("Failed to load Excel library. Check console.");
+            setUploading(false);
+        }
+    };
+
     return (
         <>
             <div className="space-y-6 animate-fade-in pb-20 max-w-2xl mx-auto">
@@ -299,6 +439,30 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
                         <h3 className="text-sm font-black text-amber-400 uppercase tracking-[0.3em]">Salesman Targets</h3>
                         <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Set Goals for {targets.length} Salesmen</p>
                     </div>
+
+                    <input
+                        type="file"
+                        accept=".xlsx, .xls"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                        className="hidden"
+                    />
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                        className="p-3 bg-emerald-500 rounded-2xl text-slate-900 border border-emerald-400 shadow-lg hover:bg-emerald-400 active:scale-95 transition-all flex items-center gap-2"
+                        title="Upload WinOmkar Report Excel"
+                    >
+                        {uploading ? (
+                            <div className="animate-spin w-5 h-5 border-2 border-slate-900/30 border-t-slate-900 rounded-full"></div>
+                        ) : (
+                            <Upload size={20} />
+                        )}
+                        <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">
+                            {uploading ? 'Parsing...' : 'Upload Excel'}
+                        </span>
+                    </button>
+
                     <button
                         onClick={() => setIsAddModalOpen(true)}
                         className="p-3 bg-amber-500 rounded-2xl text-slate-900 border border-amber-400 shadow-lg hover:bg-amber-400 active:scale-95 transition-all flex items-center gap-2"

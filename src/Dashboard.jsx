@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { Virtuoso } from 'react-virtuoso';
-import { LogOut, Wallet, FileText, AlertCircle, RefreshCw, User, TrendingUp, ChevronLeft, ChevronRight, MapPin, Search, ArrowRight, Smartphone, Edit2, Check, X, Loader2, Compass, Trophy, Medal, Star, Target, Zap, Truck, Lock } from 'lucide-react';
+import { LogOut, Wallet, FileText, AlertCircle, RefreshCw, User, TrendingUp, ChevronLeft, ChevronRight, MapPin, Search, ArrowRight, Smartphone, Edit2, Check, X, Loader2, Compass, Trophy, Medal, Star, Target, Zap, Truck, Lock, Store, ChevronDown } from 'lucide-react';
 import { getAuth } from "firebase/auth";
 import { doc, onSnapshot, collection, query, where, updateDoc, getDoc, getDocFromServer, setDoc, getDocs, increment, deleteDoc, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
@@ -79,7 +79,7 @@ const SuccessTick = React.memo(({ onComplete }) => {
     }, [onComplete]);
 
     return (
-        <div className="fixed inset-0 z-[170] flex items-center justify-center pointer-events-none bg-slate-950/20 backdrop-blur-[2px]">
+        <div className="fixed inset-0 z-[170] flex items-center justify-center pointer-events-none bg-slate-950/90">
             <div className="bg-emerald-500 rounded-full p-8 shadow-[0_0_50px_rgba(16,185,129,0.5)] animate-pop-in">
                 <Check size={80} strokeWidth={4} className="text-white" />
             </div>
@@ -223,6 +223,49 @@ const SOUNDS = {
 };
 
 export default function Dashboard({ salesmanID, authUID }) {
+    // Helper to pre-calculate date fields for performance
+    const calculateDateFields = (dateVal) => {
+        let bDateStr = 'N/A';
+        let dt = 0;
+
+        if (dateVal) {
+            const dStr = String(dateVal);
+            if (dStr.includes('/')) {
+                const parts = dStr.split('/');
+                if (parts.length === 3) {
+                    const d = parts[0].padStart(2, '0');
+                    const m = parseInt(parts[1], 10);
+                    const y = parts[2];
+                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    bDateStr = `${d} ${months[m - 1]}`;
+                    dt = parseInt(`${y}${parts[1].padStart(2, '0')}${d}`, 10);
+                }
+            } else if (dStr.includes('-')) {
+                const parts = dStr.split('-');
+                if (parts.length === 3) {
+                    if (parts[0].length === 4) {
+                        const y = parts[0];
+                        const m = parseInt(parts[1], 10);
+                        const d = parts[2].padStart(2, '0');
+                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        bDateStr = `${d} ${months[m - 1]}`;
+                        dt = parseInt(`${y}${parts[1].padStart(2, '0')}${d}`, 10);
+                    } else {
+                        const d = parts[0].padStart(2, '0');
+                        const m = parseInt(parts[1], 10);
+                        const y = parts[2];
+                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        bDateStr = `${d} ${months[m - 1]}`;
+                        dt = parseInt(`${y}${parts[1].padStart(2, '0')}${d}`, 10);
+                    }
+                }
+            } else {
+                bDateStr = dStr;
+            }
+        }
+        return { _precal_date_str: bDateStr, _precal_date_ms: dt };
+    };
+
     // Helper to prevent path errors (e.g. "M/S")
     const sanitizeKey = (key) => {
         return String(key || "").trim().toUpperCase().replace(/[\/\\#\?]/g, "_");
@@ -237,6 +280,7 @@ export default function Dashboard({ salesmanID, authUID }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [view, setView] = useState('HOME');
+    const [reportsFilter, setReportsFilter] = useState('All');
     const [selectedRoute, setSelectedRoute] = useState(null);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [selectedBill, setSelectedBill] = useState(null);
@@ -251,6 +295,8 @@ export default function Dashboard({ salesmanID, authUID }) {
     const [selectedDailyRoute, setSelectedDailyRoute] = useState(null);
     const [pendingDailyRoute, setPendingDailyRoute] = useState(null);
     const [pendingRoute, setPendingRoute] = useState(null);
+    const [deliverySubRoute, setDeliverySubRoute] = useState('ALL'); // Filters delivery console by original route
+    const [shopSearchQuery, setShopSearchQuery] = useState(''); // Unified search for all roles
 
     // Phone Number Mgmt
     const [isPhoneModalOpen, setIsPhoneModalOpen] = useState(false);
@@ -260,7 +306,6 @@ export default function Dashboard({ salesmanID, authUID }) {
     const [billingParty, setBillingParty] = useState(null);
     const [phoneNumber, setPhoneNumber] = useState('');
     const [updatingPhone, setUpdatingPhone] = useState(false);
-    const [todayStats, setTodayStats] = useState({ Cash: 0, UPI: 0, Cheque: 0, Total: 0, count: 0 });
     const [masterPlan, setMasterPlan] = useState(null);
     const [topPerformers, setTopPerformers] = useState([]);
 
@@ -278,7 +323,35 @@ export default function Dashboard({ salesmanID, authUID }) {
     const [allMasterPlans, setAllMasterPlans] = useState({});
     const [allSalesmenTargets, setAllSalesmenTargets] = useState([]);
 
+    // Pre-calculate all company stats to fix scoping/hoisting issues in Carousel
+    const allCompanyStats = useMemo(() => {
+        const stats = {};
+        const companies = ['Cadbury', 'Britannia', 'Colgate'];
+
+        companies.forEach(company => {
+            let t = 0;
+            let a = 0;
+
+            allSalesmenTargets.forEach(targetRow => {
+                const sPlan = allMasterPlans[targetRow.salesman_id];
+                const sComp = sPlan?.company || sPlan?.Company;
+                if (sComp === company) {
+                    t += Number(targetRow.monthly_target || 0);
+                    a += Number(targetRow.achieved || 0);
+                }
+            });
+
+            stats[company] = {
+                companyTarget: t,
+                companyAchieved: a,
+                percentage: t === 0 ? 0 : Math.min(Math.round((a / t) * 100), 100)
+            };
+        });
+        return stats;
+    }, [allSalesmenTargets, allMasterPlans]);
+
     const isSalesman = targetData?.role === 'salesman';
+    const [globalDeliveryRoutes, setGlobalDeliveryRoutes] = useState([]);
 
     // Company Breakdown Modal State
     const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
@@ -325,30 +398,52 @@ export default function Dashboard({ salesmanID, authUID }) {
         return () => { document.body.style.overflow = 'unset'; };
     }, [isPhoneModalOpen, isPaymentModalOpen, isCompanyModalOpen, isRouteExplorerOpen]);
 
-    useEffect(() => {
-        const calculateStats = () => {
-            const todayStr = new Date().toLocaleDateString('en-CA');
-            const stats = { Cash: 0, UPI: 0, Cheque: 0, Total: 0, count: 0 };
-
-            pendingRequests.forEach(req => {
-                let isToday = false;
-                if (req.date === todayStr) isToday = true;
-                if (!isToday && req.timestamp && typeof req.timestamp.toDate === 'function') {
-                    if (req.timestamp.toDate().toLocaleDateString('en-CA') === todayStr) isToday = true;
-                }
-                if (!isToday && !req.timestamp && !req.date) isToday = true;
-
-                if (isToday) {
-                    const type = req.payment_type || 'Cash';
-                    stats[type] = (stats[type] || 0) + Number(req.amount || 0);
-                    stats.Total += Number(req.amount || 0);
-                    stats.count += 1;
-                }
-            });
-            setTodayStats(stats);
+    // Consolidated Stats Calculation - Optimized for Performance (Fixes INP)
+    const allStats = useMemo(() => {
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        const s = {
+            salesman: { Cash: 0, UPI: 0, Cheque: 0, Credit: 0, Less: 0, Total: 0, count: 0 },
+            delivery: { Cash: 0, UPI: 0, Cheque: 0, Credit: 0, Less: 0, Total: 0, count: 0 }
         };
-        calculateStats();
+
+        pendingRequests.forEach(req => {
+            const isDelivery = !!req.is_delivery;
+            const target = isDelivery ? s.delivery : s.salesman;
+
+            // Check if today
+            let isToday = false;
+            if (req.date === todayStr) isToday = true;
+            else if (req.timestamp && typeof req.timestamp.toDate === 'function') {
+                if (req.timestamp.toDate().toLocaleDateString('en-CA') === todayStr) isToday = true;
+            } else if (!req.timestamp && !req.date) isToday = true;
+
+            const amt = Number(req.amount || 0);
+            const type = req.payment_type || 'Cash';
+
+            if (isToday) {
+                target[type] = (target[type] || 0) + amt;
+                // Don't add 'Less' to Total, it's a deduction
+                if (type !== 'Less') {
+                    target.Total += amt;
+                    target.count += 1;
+                }
+            } else if (isDelivery) {
+                // Delivery stats usually track the active route, regardless of 'Today' if not specified
+                // But for safety, we keep consistency
+                target[type] = (target[type] || 0) + amt;
+                if (type !== 'Less') {
+                    target.Total += amt;
+                    target.count += 1;
+                }
+            }
+        });
+
+        return s;
     }, [pendingRequests]);
+
+    // Backward compatibility for existing code
+    const todayStats = isSalesman ? allStats.salesman : allStats.delivery;
+    const deliveryStats = allStats.delivery;
 
     const [activeAccountID, setActiveAccountID] = useState(null);
     const loginNormalized = normalizeID(salesmanID);
@@ -377,6 +472,13 @@ export default function Dashboard({ salesmanID, authUID }) {
             };
 
             try {
+                // BYPASS for Delivery role
+                if (targetData?.role === 'delivery' || localStorage.getItem('jarwis_role') === 'delivery') {
+                    console.log(`[Dashboard] DELIVERY ROLE DETECTED. Bypassing discovery for ${baseID}`);
+                    setActiveAccountID(baseID);
+                    return;
+                }
+
                 // 2. DISCOVERY SEQUENCE (Ordered by Reliability)
                 // A. Spaced/Official ID
                 let foundID = await tryFetch(baseID);
@@ -467,7 +569,12 @@ export default function Dashboard({ salesmanID, authUID }) {
                     }
                 }
             } else if (!snap.metadata.fromCache) {
-                console.warn("[Firestore] No doc at", activeAccountID);
+                if (targetData?.role !== 'delivery' && localStorage.getItem('jarwis_role') !== 'delivery') {
+                    console.warn("[Firestore] No doc at", activeAccountID);
+                } else {
+                    // Delivery users naturally won't have an `outstanding_data` base document, avoid spamming warnings
+                    if (isSubscribed) { setLoading(false); setIsRefreshing(false); }
+                }
             }
         }, (err) => {
             console.error("[Firestore] Sync Error:", err);
@@ -518,11 +625,24 @@ export default function Dashboard({ salesmanID, authUID }) {
             setTopPerformers(top);
         });
 
+        // 6. Global Delivery Routes Listener
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        const deliveryQuery = query(collection(db, "daily_deliveries"), where("date", "==", todayStr));
+        const deliveryUnsub = onSnapshot(deliveryQuery, (snap) => {
+            const routes = [];
+            snap.forEach(doc => {
+                routes.push({ id: doc.id, ...doc.data() });
+            });
+            console.log("[Firestore] Global Delivery Routes Synced:", routes.length);
+            setGlobalDeliveryRoutes(routes);
+        });
+
         return () => {
             isSubscribed = false;
             unsub();
             plansUnsub();
             usersUnsub();
+            deliveryUnsub();
         };
     }, [activeAccountID, refreshTrigger]);
 
@@ -716,6 +836,7 @@ export default function Dashboard({ salesmanID, authUID }) {
     }, [activeAccountID]);
 
 
+
     useEffect(() => {
         // Target Data & Badge Listener
         // FIX: If data.uid is missing (unlinked preset account), fallback to activeAccountID
@@ -767,22 +888,70 @@ export default function Dashboard({ salesmanID, authUID }) {
 
     // Optimized Route Statistics
     const routeStats = React.useMemo(() => {
+        // 1. Logic for Delivery Console Hub
+        if (selectedDailyRoute && selectedDailyRoute.shops) {
+            let total = 0;
+            const pendingDeliveryBillNos = new Set();
+            pendingRequests.forEach(req => {
+                if (req.status === 'Pending' && req.is_delivery && req.bill_no && req.bill_no !== "N/A") {
+                    pendingDeliveryBillNos.add(String(req.bill_no).toUpperCase());
+                }
+            });
+
+            Object.values(selectedDailyRoute.shops).forEach(bills => {
+                if (Array.isArray(bills)) {
+                    bills.forEach(bill => {
+                        const bNo = String(bill.bill_no || bill.invoice_no || '').toUpperCase();
+                        if (!pendingDeliveryBillNos.has(bNo)) {
+                            total += Number(bill.Amount || bill.net_amount || 0);
+                        }
+                    });
+                }
+            });
+            return { currentRouteTotal: total, allRoutes: { [selectedDailyRoute.route_name]: total } };
+        }
+
         if (!data?.bills) return { currentRouteTotal: 0, allRoutes: {} };
 
-        // 1. Group all routes
-        const allRoutes = data.bills.reduce((acc, bill) => {
+        // 2. Identify Pending Bills to Filter out
+        const pendingBillNos = new Set();
+        const pendingShopIdsWithNoBill = new Set();
+        pendingRequests.forEach(req => {
+            if (req.status === 'Pending' && !req.is_delivery) {
+                if (req.bill_no && req.bill_no !== "N/A") {
+                    pendingBillNos.add(String(req.bill_no).toUpperCase());
+                } else if (req.shop_id) {
+                    pendingShopIdsWithNoBill.add(String(req.shop_id));
+                } else if (req.party) {
+                    pendingShopIdsWithNoBill.add(String(req.party).toUpperCase());
+                }
+            }
+        });
+
+        const filterCollected = (b) => {
+            const bNo = String(b.bill_no || b.invoice_no || '').toUpperCase();
+            if (bNo && pendingBillNos.has(bNo)) return false;
+            const sId = String(b.shop_id || b.ShopID || b.id);
+            if (sId && pendingShopIdsWithNoBill.has(sId)) return false;
+            const pName = String(b.Party || '').toUpperCase();
+            if (pName && pendingShopIdsWithNoBill.has(pName)) return false;
+            return true;
+        };
+
+        // 3. Group all salesman routes (excluding collected ones)
+        const allRoutes = data.bills.filter(filterCollected).reduce((acc, bill) => {
             const r = (bill.Route || 'Unassigned').trim().toUpperCase();
             const amt = Number(bill.Balance) || Number(bill.Amount) || 0;
             acc[r] = (acc[r] || 0) + amt;
             return acc;
         }, {});
 
-        // 2. Current Route Total
+        // 4. Current Route Total
         const currentRouteNormalized = selectedRoute ? selectedRoute.trim().toUpperCase() : null;
         const currentRouteTotal = currentRouteNormalized ? (allRoutes[currentRouteNormalized] || 0) : 0;
 
         return { currentRouteTotal, allRoutes };
-    }, [data, selectedRoute]);
+    }, [data, selectedRoute, selectedDailyRoute, pendingRequests]);
 
 
     const availableRoutes = React.useMemo(() => {
@@ -796,11 +965,104 @@ export default function Dashboard({ salesmanID, authUID }) {
     }, [data]);
 
     const availableDailyRoutes = React.useMemo(() => {
-        if (!data || !data.daily_deliveries) return [];
-        return data.daily_deliveries || [];
-    }, [data]);
+        const salesmanDaily = data?.daily_deliveries || [];
+        // Extract route names from global routes
+        const globalRoutes = globalDeliveryRoutes || [];
+
+        // Merge and deduplicate by route_name
+        const mergedMap = new Map();
+
+        // Add salesman specific ones first (priority)
+        salesmanDaily.forEach(r => {
+            if (r.route_name) mergedMap.set(r.route_name.trim().toUpperCase(), r);
+        });
+
+        // Add global ones
+        globalRoutes.forEach(r => {
+            const key = r.route_name ? r.route_name.trim().toUpperCase() : null;
+            if (key && !mergedMap.has(key)) {
+                mergedMap.set(key, r);
+            }
+        });
+
+        return Array.from(mergedMap.values());
+    }, [data, globalDeliveryRoutes]);
+
+    // Restore Selected Daily Route (Delivery) - MOVED HERE TO FIX REFERENCE ERROR
+    useEffect(() => {
+        if (!availableDailyRoutes.length || selectedDailyRoute) return;
+
+        try {
+            const persisted = localStorage.getItem('current_delivery_route');
+            if (persisted) {
+                const { routeName, date } = JSON.parse(persisted);
+                if (date === new Date().toDateString()) {
+                    const found = availableDailyRoutes.find(r => r.route_name === routeName);
+                    if (found) {
+                        console.log(`[Dashboard] Restoring Delivery Route: ${found.route_name}`);
+                        setSelectedDailyRoute(found);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Error restoring delivery route", e);
+        }
+    }, [availableDailyRoutes]);
 
     const filteredBills = React.useMemo(() => {
+        // Identify bills that have pending collections and sum their amounts
+        const pendingAmountsByBill = {}; // BillNo -> Sum
+        const pendingAmountsByShop = {}; // ShopID/Party -> Sum
+        const pendingDeliveryBillNos = new Set();
+        const pendingDeliveryAmounts = {}; // BillNo -> Sum
+
+        pendingRequests.forEach(req => {
+            if (req.status === 'Pending') {
+                const amt = Number(req.amount || 0);
+                if (req.is_delivery) {
+                    if (req.bill_no && req.bill_no !== "N/A") {
+                        const bNo = String(req.bill_no).toUpperCase();
+                        pendingDeliveryBillNos.add(bNo);
+                        pendingDeliveryAmounts[bNo] = (pendingDeliveryAmounts[bNo] || 0) + amt;
+                    }
+                } else {
+                    if (req.bill_no && req.bill_no !== "N/A") {
+                        const bNo = String(req.bill_no).toUpperCase();
+                        pendingAmountsByBill[bNo] = (pendingAmountsByBill[bNo] || 0) + amt;
+                    } else if (req.shop_id) {
+                        const sId = String(req.shop_id);
+                        pendingAmountsByShop[sId] = (pendingAmountsByShop[sId] || 0) + amt;
+                    } else if (req.party) {
+                        const pName = String(req.party).toUpperCase();
+                        pendingAmountsByShop[pName] = (pendingAmountsByShop[pName] || 0) + amt;
+                    }
+                }
+            }
+        });
+
+        // Helper to filter out collected bills for salesman
+        const filterCollected = (b) => {
+            const billFullAmount = Number(b.Amount || b.net_amount || 0);
+            if (billFullAmount <= 0) return true;
+
+            const bNo = String(b.bill_no || b.invoice_no || '').toUpperCase();
+            if (bNo && pendingAmountsByBill[bNo] !== undefined) {
+                // Only hide if total pending amount >= bill amount (with 1 rupee margin)
+                return pendingAmountsByBill[bNo] < (billFullAmount - 1);
+            }
+
+            const sId = String(b.shop_id || b.ShopID || b.id);
+            if (sId && pendingAmountsByShop[sId] !== undefined) {
+                return pendingAmountsByShop[sId] < (billFullAmount - 1);
+            }
+
+            const pName = String(b.Party || '').toUpperCase();
+            if (pName && pendingAmountsByShop[pName] !== undefined) {
+                return pendingAmountsByShop[pName] < (billFullAmount - 1);
+            }
+
+            return true;
+        };
 
         // 1. Logic for Delivery Console (Front Office Uploads)
         if (selectedDailyRoute && selectedDailyRoute.shops) {
@@ -809,20 +1071,33 @@ export default function Dashboard({ salesmanID, authUID }) {
             Object.entries(selectedDailyRoute.shops).forEach(([shopName, shopBills]) => {
                 if (Array.isArray(shopBills)) {
                     shopBills.forEach(bill => {
+                        const bNo = String(bill.bill_no || bill.invoice_no || '').toUpperCase();
+                        const billFullAmount = Number(bill.Amount || bill.net_amount || 0);
+                        const isCollected = pendingDeliveryAmounts[bNo] >= (billFullAmount - 1);
+
+                        // We push all bills, but tag 'isCollected' so they show at the bottom of the list.
                         bills.push({
                             ...bill,
                             Party: shopName, // Ensure Party name is set from the map key
                             Route: selectedDailyRoute.route_name,
+                            OriginalRoute: bill.Route || "Unknown",
                             _isDeliveryConsole: true,
+                            _isCollected: isCollected,
                             // Map API fields to UI fields
-                            Amount: bill.Amount || bill.net_amount || 0,
+                            Amount: billFullAmount,
                             bill_no: bill.bill_no || bill.invoice_no || 'N/A',
                             Date: bill.Date || bill.invoice_date || 'N/A',
-                            Overdue: bill.Overdue || 0
+                            Overdue: bill.Overdue || 0,
+                            // PRE-CALCULATE FOR PERFORMANCE
+                            ...calculateDateFields(bill.Date || bill.invoice_date)
                         });
                     });
                 }
             });
+
+            if (deliverySubRoute && deliverySubRoute !== 'ALL') {
+                bills = bills.filter(b => (b.OriginalRoute || "").trim().toUpperCase() === deliverySubRoute.trim().toUpperCase());
+            }
             return bills;
         }
 
@@ -830,15 +1105,96 @@ export default function Dashboard({ salesmanID, authUID }) {
 
         const bills = data.bills.map(bill => ({
             ...bill,
-            shop_id: bill.shop_id || bill.ShopID || bill.id // Ensure shop_id is on every bill
-        }));
+            shop_id: bill.shop_id || bill.ShopID || bill.id, // Ensure shop_id is on every bill
+            ...calculateDateFields(bill.Date)
+        })).filter(filterCollected);
 
         if (routeFilterMode === 'ALL' && !isSalesman) return bills;
         if (!selectedRoute) return [];
 
         const targetRoute = selectedRoute.trim().toUpperCase();
         return bills.filter(b => (b.Route || "").trim().toUpperCase() === targetRoute);
-    }, [data, routeFilterMode, selectedRoute, selectedDailyRoute, isSalesman]);
+    }, [data, routeFilterMode, selectedRoute, selectedDailyRoute, isSalesman, pendingRequests]);
+
+    // --- REFACTORED VIEW LOGIC: HOOKS MOVED TO FOLLOW DEPENDENCIES ---
+    const groupedShops = useMemo(() => {
+        const grouped = [];
+        const groups = {};
+
+        filteredBills.forEach(bill => {
+            const key = bill.Party || 'Unknown Shop';
+            if (!groups[key]) {
+                groups[key] = {
+                    name: key,
+                    bills: [],
+                    totalAmount: 0,
+                    maxOverdue: 0,
+                    phone: bill.Phone || null,
+                    shop_id: bill.shop_id || bill.ShopID || bill.id
+                };
+                grouped.push(groups[key]);
+            }
+            groups[key].bills.push(bill);
+            groups[key].totalAmount += Number(bill.Amount || 0);
+            groups[key].maxOverdue = Math.max(groups[key].maxOverdue, Number(bill.Overdue || 0));
+            if (!groups[key].phone && bill.Phone) groups[key].phone = bill.Phone;
+
+            const bStr = routeFilterMode === 'TODAY' ? String(bill.bill_no || bill.invoice_no || '') : '';
+            if (bStr) {
+                let numStr = '';
+                for (let i = bStr.length - 1; i >= 0; i--) {
+                    if (bStr[i] >= '0' && bStr[i] <= '9') {
+                        numStr = bStr[i] + numStr;
+                    } else if (numStr.length > 0) {
+                        break;
+                    }
+                }
+                if (numStr) groups[key].maxInvoiceNo = Math.max(groups[key].maxInvoiceNo || 0, parseInt(numStr, 10));
+            }
+        });
+
+        if (routeFilterMode === 'TODAY' && !isSalesman) {
+            grouped.sort((a, b) => {
+                const aFullyCollected = a.bills.every(bill => bill._isCollected);
+                const bFullyCollected = b.bills.every(bill => bill._isCollected);
+
+                if (aFullyCollected && !bFullyCollected) return 1;
+                if (!aFullyCollected && bFullyCollected) return -1;
+
+                return (b.maxInvoiceNo || 0) - (a.maxInvoiceNo || 0);
+            });
+        } else {
+            grouped.sort((a, b) => b.maxOverdue - a.maxOverdue);
+        }
+
+        grouped.forEach(shop => shop.bills.sort((a, b) => a._precal_date_ms - b._precal_date_ms));
+
+        if (shopSearchQuery) {
+            const query = shopSearchQuery.trim().toUpperCase();
+            return grouped.filter(s => s.name.toUpperCase().includes(query));
+        }
+
+        return grouped;
+    }, [filteredBills, routeFilterMode, shopSearchQuery, isSalesman]);
+
+    const availableDeliverySubRoutes = useMemo(() => {
+        if (!selectedDailyRoute || !selectedDailyRoute.shops) return [];
+        const routes = new Set();
+        Object.values(selectedDailyRoute.shops).forEach(shopBills => {
+            if (Array.isArray(shopBills)) {
+                shopBills.forEach(bill => {
+                    if (bill.Route) routes.add(bill.Route.trim().toUpperCase());
+                });
+            }
+        });
+        return Array.from(routes).sort();
+    }, [selectedDailyRoute]);
+
+
+    const computedTotalOutstanding = React.useMemo(() => {
+        if (!routeStats?.allRoutes) return data?.total_outstanding || 0;
+        return Object.values(routeStats.allRoutes).reduce((sum, val) => sum + val, 0);
+    }, [routeStats, data]);
 
     const openPaymentModal = (bill) => {
         setSelectedBill(bill);
@@ -846,10 +1202,10 @@ export default function Dashboard({ salesmanID, authUID }) {
     };
 
     const handlePaymentSuccess = (paymentDetail) => {
-        const { amount, type, isOverdue, points_awarded } = paymentDetail;
+        const { amount, type, isOverdue, points_awarded, is_delivery } = paymentDetail;
 
         // 1. Calculate Points (1pt per 1k)
-        const points = points_awarded || 0;
+        const points = is_delivery ? 0 : (points_awarded || 0);
 
         // 2. Trigger Sensory Feedback (Kaching + Haptic)
         playSound('kaching');
@@ -957,7 +1313,14 @@ export default function Dashboard({ salesmanID, authUID }) {
                 <div className="flex z-20 items-center justify-start w-1/3">
                     <div className="flex items-center gap-2 max-w-full">
                         {view !== 'HOME' ? (
-                            <button onClick={() => { playSound('click'); setView('HOME'); }} className="w-11 h-11 flex items-center justify-center bg-white/10  rounded-2xl hover:bg-white/20 transition-all active:scale-95 border border-white/10 shadow-lg group shrink-0">
+                            <button
+                                onClick={() => {
+                                    playSound('click');
+                                    setView('HOME');
+                                    setReportsFilter('All');
+                                }}
+                                className="w-11 h-11 flex items-center justify-center bg-white/10  rounded-2xl hover:bg-white/20 transition-all active:scale-95 border border-white/10 shadow-lg group shrink-0"
+                            >
                                 <ChevronLeft size={20} className="text-white group-hover:-translate-x-0.5 transition-transform" />
                             </button>
                         ) : (
@@ -996,34 +1359,9 @@ export default function Dashboard({ salesmanID, authUID }) {
                                 <RefreshCw size={14} strokeWidth={2.5} />
                             </button>
                         )}
-                        {/* [PROMINENT] Switch to Delivery Hub Shortcut */}
-                        {!selectedDailyRoute && !selectedRoute && availableDailyRoutes.length > 0 && (
-                            <button
-                                onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
-                                className="mt-4 px-6 py-2 bg-emerald-500 text-slate-950 font-black uppercase tracking-[0.2em] rounded-full text-[10px] shadow-[0_0_20px_rgba(16,185,129,0.4)]  active:scale-95 transition-all flex items-center gap-2"
-                            >
-                                <Truck size={14} /> View Delivery Hub (New Load)
-                            </button>
-                        )}
 
-                        {/* [LOCKED] Unified Navigation area when route is active */}
-                        {(selectedRoute || selectedDailyRoute) && (
-                            <div className="flex flex-col gap-3 w-full max-w-[280px]">
-                                <button
-                                    onClick={() => { playSound('click'); setView('OUTSTANDING_LIST'); }}
-                                    className="mt-2 px-8 py-4 bg-emerald-500 text-slate-950 font-black uppercase tracking-[0.2em] rounded-2xl text-[12px] shadow-[0_10px_30px_rgba(16,185,129,0.3)] active:scale-95 transition-all flex items-center justify-center gap-3"
-                                >
-                                    <FileText size={18} /> {selectedDailyRoute ? 'Delivery Consolidation' : 'Salesman Consolidation'}
-                                </button>
 
-                                <button
-                                    onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
-                                    className='px-8 py-3 bg-white/5 text-slate-400 hover:text-white border border-white/10 hover:border-white/20 font-black uppercase tracking-[0.2em] rounded-2xl text-[10px] active:scale-95 transition-all flex items-center justify-center gap-2'
-                                >
-                                    <MapPin size={14} /> {selectedDailyRoute ? 'Change Delivery Sector' : 'Change Salesman Sector'}
-                                </button>
-                            </div>
-                        )}
+
                         <div className="w-[1px] h-5 bg-white/10 mx-0.5"></div>
                         <button
                             onClick={() => { playSound('click'); handleLogout(); }}
@@ -1061,167 +1399,331 @@ export default function Dashboard({ salesmanID, authUID }) {
                     style={{ WebkitOverflowScrolling: 'touch' }}
                 >
 
-                    {/* ----------------- SLIDE 1: QUICK ACTIONS (New Left Slide) ----------------- */}
-                    <div className="min-w-full w-full h-full shrink-0 snap-center snap-always px-6 flex flex-col justify-center gap-4 py-8">
-                        <div className="flex flex-col gap-4 w-full h-full justify-center">
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
-                                    <h3 className="text-slate-300 text-[10px] font-black uppercase tracking-[0.3em]">Quick Hub</h3>
+                    {/* ----------------- SLIDE 1: QUICK ACTIONS OR SALES (Right Swipe Reveals This) ----------------- */}
+                    {isSalesman ? (
+                        <div className="min-w-full w-full h-full shrink-0 snap-center snap-always px-6 flex flex-col justify-center gap-4 py-8">
+                            <div className="flex flex-col gap-4 w-full h-full justify-center">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
+                                        <h3 className="text-slate-300 text-[10px] font-black uppercase tracking-[0.3em]">Quick Hub</h3>
+                                    </div>
+                                    <span className="text-slate-500 text-[9px] uppercase tracking-widest font-black  flex items-center gap-1">
+                                        Swipe Right <ArrowRight size={10} />
+                                    </span>
                                 </div>
-                                <span className="text-slate-500 text-[9px] uppercase tracking-widest font-black  flex items-center gap-1">
-                                    Swipe Right <ArrowRight size={10} />
-                                </span>
-                            </div>
 
-                            {/* 1. Outstandings Button (Red/Orange Glow) */}
+                                {/* 1. Outstandings Button (Red/Orange Glow) */}
+                                <button
+                                    onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
+                                    className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-orange-500/20 to-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                    <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
+                                                <Wallet size={24} className="text-white drop-shadow-md" />
+                                            </div>
+                                            <div className="text-left">
+                                                <h3 className="text-base font-black text-white tracking-tight group-hover:text-orange-400 transition-colors">Pending Collections</h3>
+                                                <p className="text-slate-500 text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5">View Route Balances</p>
+                                            </div>
+                                        </div>
+                                        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-orange-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
+                                            <ArrowRight size={16} />
+                                        </div>
+                                    </div>
+                                </button>
+
+                                {/* 2. My Sales Button (Neon Blue Glow) */}
+                                <button
+                                    onClick={() => { playSound('click'); setView('SALES'); }}
+                                    className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                    <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(59,130,246,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
+                                                <TrendingUp size={24} className="text-white drop-shadow-md" />
+                                            </div>
+                                            <div className="text-left">
+                                                <h3 className="text-base font-black text-white tracking-tight group-hover:text-blue-400 transition-colors">Target Analysis</h3>
+                                                <p className="text-slate-500 text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5">Daily Sales & Growth</p>
+                                            </div>
+                                        </div>
+                                        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-blue-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
+                                            <ArrowRight size={16} />
+                                        </div>
+                                    </div>
+                                </button>
+
+                                {/* 3. Collection Report Button (Teal/Emerald Glow) */}
+                                <button
+                                    onClick={() => { playSound('click'); setView('REPORTS'); }}
+                                    className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                    <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
+                                                <FileText size={24} className="text-white drop-shadow-md" />
+                                            </div>
+                                            <div className="text-left">
+                                                <h3 className="text-base font-black text-white tracking-tight group-hover:text-emerald-400 transition-colors">Collection Report</h3>
+                                                <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider mt-0.5">Daily summary & history</p>
+                                            </div>
+                                        </div>
+                                        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-emerald-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
+                                            <ArrowRight size={16} />
+                                        </div>
+                                    </div>
+                                </button>
+
+                                {/* 4. Route Portfolio Button (Premium Indigo Glow) */}
+                                <button
+                                    onClick={() => { playSound('click'); setView('PORTFOLIO'); }}
+                                    className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-blue-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                    <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(79,70,229,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
+                                                <Compass size={24} className="text-white drop-shadow-md" />
+                                            </div>
+                                            <div className="text-left">
+                                                <h3 className="text-base font-black text-white tracking-tight group-hover:text-indigo-400 transition-colors">Route Portfolio</h3>
+                                                <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider mt-0.5">Market Analysis & Reach</p>
+                                            </div>
+                                        </div>
+                                        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-indigo-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
+                                            <ArrowRight size={16} />
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div className="mt-auto"></div>
+                        </div>
+                    ) : (
+                        <div className="min-w-full w-full h-full shrink-0 snap-center snap-always px-8 flex flex-col justify-center items-center gap-4 py-8">
                             <button
-                                onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
-                                className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                onClick={() => { playSound('click'); setView('OUTSTANDING_LIST'); }}
+                                className="group relative overflow-hidden bg-slate-900/40 p-1.5 rounded-[2rem] shadow-2xl active:scale-[0.98] transition-all duration-300 border border-emerald-500/20 w-full max-w-sm shrink-0"
                             >
-                                <div className="absolute inset-0 bg-gradient-to-r from-orange-500/20 to-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                                <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
+                                <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                <div className="bg-slate-950/80 rounded-[1.5rem] p-5 relative z-10 flex items-center justify-between gap-4">
                                     <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
+                                        <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)] group-hover:scale-110 transition-transform duration-500 shrink-0">
+                                            <Store size={24} className="text-white drop-shadow-md" />
+                                        </div>
+                                        <div className="text-left">
+                                            <h3 className="text-lg font-black text-white tracking-tight uppercase">₹{routeStats.currentRouteTotal.toLocaleString('en-IN')}</h3>
+                                            <p className="text-emerald-400 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">Total Load (Shop List)</p>
+                                        </div>
+                                    </div>
+                                    <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 shrink-0">
+                                        <ChevronDown size={16} />
+                                    </div>
+                                </div>
+                            </button>
+
+                            {/* New Total Collection Button Contextual for Delivery */}
+                            <button
+                                onClick={() => { playSound('click'); setView('REPORTS'); }}
+                                className="group relative overflow-hidden bg-slate-900/40 p-1.5 rounded-[2rem] shadow-2xl active:scale-[0.98] transition-all duration-300 border border-white/10 w-full max-w-sm shrink-0 mt-2"
+                            >
+                                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 to-indigo-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                <div className="bg-slate-950/80 rounded-[1.5rem] p-5 relative z-10 flex items-center justify-between gap-4">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(59,130,246,0.4)] group-hover:scale-110 transition-transform duration-500 shrink-0">
                                             <Wallet size={24} className="text-white drop-shadow-md" />
                                         </div>
                                         <div className="text-left">
-                                            <h3 className="text-base font-black text-white tracking-tight group-hover:text-orange-400 transition-colors">Pending Collections</h3>
-                                            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5">View Route Balances</p>
+                                            <h3 className="text-lg font-black text-white tracking-tight uppercase">Total Collection</h3>
+                                            <p className="text-blue-400 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">₹{(deliveryStats?.Total || 0).toLocaleString('en-IN')}</p>
                                         </div>
                                     </div>
-                                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-orange-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
+                                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-500 shrink-0">
                                         <ArrowRight size={16} />
                                     </div>
                                 </div>
                             </button>
 
-                            {/* 2. My Sales Button (Neon Blue Glow) */}
+                            {/* Route Selection Button Contextual for Delivery */}
                             <button
-                                onClick={() => { playSound('click'); setView('SALES'); }}
-                                className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
+                                onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
+                                className="group relative overflow-hidden bg-slate-900/40 p-1.5 rounded-[2rem] shadow-2xl active:scale-[0.98] transition-all duration-300 border border-white/10 w-full max-w-sm shrink-0 mt-2"
                             >
-                                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                                <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
+                                <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                <div className="bg-slate-950/80 rounded-[1.5rem] p-5 relative z-10 flex items-center justify-between gap-4">
                                     <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(59,130,246,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
-                                            <TrendingUp size={24} className="text-white drop-shadow-md" />
+                                        <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-500 shrink-0 border border-white/5">
+                                            <MapPin size={24} className={selectedDailyRoute ? "text-emerald-400" : "text-slate-500"} />
                                         </div>
                                         <div className="text-left">
-                                            <h3 className="text-base font-black text-white tracking-tight group-hover:text-blue-400 transition-colors">Target Analysis</h3>
-                                            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5">Daily Sales & Growth</p>
+                                            <h3 className="text-lg font-black text-white tracking-tight uppercase">Change Route</h3>
+                                            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5 truncate max-w-[150px]">
+                                                {selectedDailyRoute ? selectedDailyRoute.route_name : "NO ROUTE SELECTED"}
+                                            </p>
                                         </div>
                                     </div>
-                                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-blue-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
-                                        <ArrowRight size={16} />
-                                    </div>
-                                </div>
-                            </button>
-
-                            {/* 3. Collection Report Button (Teal/Emerald Glow) */}
-                            <button
-                                onClick={() => { playSound('click'); setView('REPORTS'); }}
-                                className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
-                            >
-                                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                                <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
-                                            <FileText size={24} className="text-white drop-shadow-md" />
-                                        </div>
-                                        <div className="text-left">
-                                            <h3 className="text-base font-black text-white tracking-tight group-hover:text-emerald-400 transition-colors">Collection Report</h3>
-                                            <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider mt-0.5">Daily summary & history</p>
-                                        </div>
-                                    </div>
-                                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-emerald-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
-                                        <ArrowRight size={16} />
-                                    </div>
-                                </div>
-                            </button>
-
-                            {/* 4. Route Portfolio Button (Premium Indigo Glow) */}
-                            <button
-                                onClick={() => { playSound('click'); setView('PORTFOLIO'); }}
-                                className="group relative overflow-hidden bg-slate-900/40  p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10"
-                            >
-                                <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-blue-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                                <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(79,70,229,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
-                                            <Compass size={24} className="text-white drop-shadow-md" />
-                                        </div>
-                                        <div className="text-left">
-                                            <h3 className="text-base font-black text-white tracking-tight group-hover:text-indigo-400 transition-colors">Route Portfolio</h3>
-                                            <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider mt-0.5">Market Analysis & Reach</p>
-                                        </div>
-                                    </div>
-                                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-indigo-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
+                                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-500 shrink-0">
                                         <ArrowRight size={16} />
                                     </div>
                                 </div>
                             </button>
                         </div>
-                        <div className="mt-auto"></div>
-                    </div>
+                    )}
 
                     {/* ----------------- SLIDE 2: HOME/INTAKE OVERVIEW ----------------- */}
-                    <div ref={defaultSlideRef} className="min-w-full w-full h-full shrink-0 snap-center snap-always px-6 flex flex-col justify-center gap-6 pt-2 pb-6">
-                        {/* User Profile (Moved from Header) */}
-                        <div className="flex flex-col items-center justify-center text-center gap-2 mt-auto">
-                            <div className="relative inline-block mt-1 max-w-full">
-                                <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tighter drop-shadow-2xl px-6 leading-tight uppercase truncate max-w-[80vw] sm:max-w-none block">
-                                    {targetData?.salesman_name || targetData?.name || salesmanID}
-                                </h2>
-                                <div className="absolute -right-1 top-1.5 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.6)] "></div>
-                            </div>
+                    <div ref={defaultSlideRef} className="min-w-full w-full h-full shrink-0 snap-center snap-always px-6 flex flex-col justify-center gap-6 pt-2 pb-6 relative min-h-[450px]">
+                        {isSalesman ? (
+                            <div className="flex flex-col items-center justify-center text-center gap-2 mt-auto">
+                                <div className="relative inline-block mt-1 max-w-full">
+                                    <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tighter drop-shadow-2xl px-6 leading-tight uppercase truncate max-w-[80vw] sm:max-w-none block">
+                                        {targetData?.salesman_name || targetData?.name || salesmanID}
+                                    </h2>
+                                    <div className="absolute -right-1 top-1.5 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.6)] "></div>
+                                </div>
 
-                            {/* RANK BADGE - Centered below name */}
-                            {(() => {
-                                const myID = activeAccountID?.replace(/\s+/g, '');
-                                const myEntry = topPerformers.find(p =>
-                                    p.salesman_id === myID ||
-                                    p.name?.trim().toUpperCase() === (salesmanID || "").trim().toUpperCase()
-                                );
-
-                                if (myEntry && myEntry.rank <= 3 && myEntry.pct >= 1) {
-                                    const rank = myEntry.rank;
-                                    return (
-                                        <div className={`px-5 py-2 rounded-full border font-black text-[10px] uppercase tracking-[0.25em] shadow-xl animate-in fade-in zoom-in duration-700  ${rank === 1 ? 'bg-amber-500/20 border-amber-500/30 text-amber-500 shadow-amber-500/20' :
-                                            rank === 2 ? 'bg-slate-300/20 border-slate-300/30 text-slate-300 shadow-slate-300/20' :
-                                                'bg-orange-500/20 border-orange-500/30 text-orange-500 shadow-orange-500/20'
-                                            }`}>
-                                            🏆 Rank #{rank} Performer
-                                        </div>
+                                {/* RANK BADGE - Centered below name */}
+                                {(() => {
+                                    const myID = activeAccountID?.replace(/\s+/g, '');
+                                    const myEntry = topPerformers.find(p =>
+                                        p.salesman_id === myID ||
+                                        p.name?.trim().toUpperCase() === (salesmanID || "").trim().toUpperCase()
                                     );
-                                }
-                                return null;
-                            })()}
 
-                            <div className="mt-2 flex justify-center">
-                                {selectedRoute ? (
-                                    <div className="bg-slate-800/80  px-4 py-1.5 rounded-full border border-white/10 shadow-lg inline-flex items-center gap-2 group active:scale-95 transition-all">
-                                        <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
-                                            <MapPin size={12} className="text-blue-400" />
+                                    if (myEntry && myEntry.rank <= 3 && myEntry.pct >= 1) {
+                                        const rank = myEntry.rank;
+                                        return (
+                                            <div className={`px-5 py-2 rounded-full border font-black text-[10px] uppercase tracking-[0.25em] shadow-xl animate-in fade-in zoom-in duration-700  ${rank === 1 ? 'bg-amber-500/20 border-amber-500/30 text-amber-500 shadow-amber-500/20' :
+                                                rank === 2 ? 'bg-slate-300/20 border-slate-300/30 text-slate-300 shadow-slate-300/20' :
+                                                    'bg-orange-500/20 border-orange-500/30 text-orange-500 shadow-orange-500/20'
+                                                }`}>
+                                                🏆 Rank #{rank} Performer
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })()}
+
+                                <div className="mt-2 flex justify-center">
+                                    {(selectedRoute || selectedDailyRoute) ? (
+                                        <div className="bg-slate-800/80  px-4 py-1.5 rounded-full border border-white/10 shadow-lg inline-flex items-center gap-2 group active:scale-95 transition-all">
+                                            <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
+                                                <MapPin size={12} className={selectedDailyRoute ? "text-emerald-400" : "text-blue-400"} />
+                                            </div>
+                                            <div className="flex flex-col text-left overflow-hidden">
+                                                <span className="text-[8px] font-black text-blue-300/70 uppercase tracking-[0.2em] leading-none mb-0.5">Sector</span>
+                                                <span className="text-[11px] font-black text-white uppercase tracking-tight leading-none truncate max-w-[30vw]">
+                                                    {selectedDailyRoute ? selectedDailyRoute.route_name : selectedRoute}
+                                                </span>
+                                            </div>
                                         </div>
-                                        <div className="flex flex-col text-left overflow-hidden">
-                                            <span className="text-[8px] font-black text-blue-300/70 uppercase tracking-[0.2em] leading-none mb-0.5">Sector</span>
-                                            <span className="text-[11px] font-black text-white uppercase tracking-tight leading-none truncate max-w-[30vw]">{selectedRoute}</span>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="bg-red-500/10  px-4 py-1.5 rounded-full border border-red-500/20 shadow-inner inline-flex items-center gap-2 relative overflow-hidden group hover:bg-red-500/15 transition-colors">
-                                        <div className="absolute inset-0 bg-red-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                                        <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
-                                            <AlertCircle size={10} className="text-red-400" />
-                                        </div>
-                                        <span className="text-[10px] font-black text-red-300 uppercase tracking-widest relative z-10">No Sector Locked</span>
-                                    </div>
-                                )}
+                                    ) : (
+                                        <button
+                                            onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
+                                            className={`${!isSalesman ? 'bg-blue-500 hover:bg-blue-400 text-slate-950 p-4 rounded-2xl shadow-[0_10px_30px_rgba(59,130,246,0.3)]' : 'bg-red-500/10 px-4 py-1.5 rounded-full border border-red-500/20 shadow-inner'} inline-flex items-center gap-2 relative overflow-hidden group transition-all active:scale-95`}
+                                        >
+                                            {!isSalesman ? (
+                                                <>
+                                                    <MapPin size={18} />
+                                                    <span className="text-xs font-black uppercase tracking-widest">Lock Sector to View Bills</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+                                                        <AlertCircle size={10} className="text-red-400" />
+                                                    </div>
+                                                    <span className="text-[10px] font-black text-red-300 uppercase tracking-widest relative z-10">No Sector Locked</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center text-center h-full w-full relative z-10 pt-16">
+                                {/* Hide the top header elements but keep refresh/logout accessible */}
+                                <div className="absolute top-4 w-full left-0 right-0 flex justify-between items-center z-20">
+                                    <button onClick={() => handleHardRefresh()} disabled={isRefreshing} className={`w-10 h-10 bg-slate-800/80 rounded-full flex items-center justify-center border border-white/5 shadow-lg active:scale-95 ${isRefreshing ? 'animate-spin text-blue-400' : 'text-slate-400'}`}>
+                                        <RefreshCw size={16} />
+                                    </button>
 
-                        {data ? (
+                                    {pendingRequests.length > 0 && (
+                                        <button
+                                            onClick={() => { playSound('click'); setView('REPORTS'); }}
+                                            className="bg-gradient-to-r from-orange-600 to-orange-500 h-10 px-4 rounded-full border border-orange-400/30 shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all"
+                                        >
+                                            <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                                            <span className="text-[10px] font-black text-white uppercase tracking-widest">{pendingRequests.length} PENDING</span>
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* BIJU DELIVERY Logo */}
+                                <h1 className="text-3xl sm:text-3xl font-black text-white tracking-widest drop-shadow-2xl mb-8 uppercase px-4"><span className="text-emerald-400">BIJU</span> DELIVERY</h1>
+
+                                {/* Route Info & Totals */}
+                                <div className="bg-slate-900/50 backdrop-blur-[20px] rounded-[3rem] p-8 w-full max-w-sm border border-white/5 shadow-2xl relative overflow-hidden flex flex-col items-center">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-[40px] -mr-16 -mt-16 pointer-events-none"></div>
+
+                                    <p className="text-[10px] font-black tracking-[0.3em] uppercase text-emerald-400/80 mb-2">Today's Route</p>
+                                    <button onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }} className="text-2xl font-black text-white uppercase tracking-tight mb-8 active:scale-95 transition-transform hover:text-blue-400 group flex items-center gap-2">
+                                        {selectedDailyRoute ? selectedDailyRoute.route_name : 'NO ROUTE SELECTED'} <ChevronDown size={14} className="opacity-50 group-hover:opacity-100" />
+                                    </button>
+
+                                    {/* Clickable Total Outstanding Section */}
+                                    <div className="w-full flex flex-col items-center bg-white/5 p-6 rounded-3xl border border-white/5">
+
+                                        <button
+                                            onClick={() => { playSound('click'); setView('OUTSTANDING_LIST'); }}
+                                            className="w-full flex flex-col items-center group active:scale-95 transition-transform hover:bg-white/10 rounded-2xl p-2 mb-4"
+                                        >
+                                            <p className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-500 mb-1 group-hover:text-slate-400 transition-colors">Total Outstanding</p>
+                                            <p className="text-5xl font-black text-white tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+                                                ₹{(routeStats?.currentRouteTotal || 0).toLocaleString('en-IN')}
+                                            </p>
+                                        </button>
+
+                                        {/* Payment Type Breakdown */}
+                                        {selectedDailyRoute && (
+                                            <div className="grid grid-cols-3 gap-2 w-full">
+                                                {[
+                                                    { label: 'Cash', value: deliveryStats.Cash, color: 'text-emerald-400', bg: 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/20' },
+                                                    { label: 'UPI', value: deliveryStats.UPI, color: 'text-blue-400', bg: 'bg-blue-500/10 hover:bg-blue-500/20 border-blue-500/20' },
+                                                    { label: 'Cheque', value: deliveryStats.Cheque, color: 'text-purple-400', bg: 'bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20' }
+                                                ].map((stat, i) => (
+                                                    <button
+                                                        key={i}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            playSound('click');
+                                                            setReportsFilter(stat.label);
+                                                            setView('REPORTS');
+                                                        }}
+                                                        className={`${stat.bg} p-2 py-3 rounded-2xl border flex flex-col items-center justify-center text-center w-full shadow-inner transition-transform active:scale-95`}
+                                                    >
+                                                        <p className="text-slate-500 text-[8px] font-black uppercase tracking-widest mb-1">{stat.label}</p>
+                                                        <p className={`text-xs sm:text-sm font-black ${stat.color}`}>₹{stat.value.toLocaleString('en-IN')}</p>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Quit Button */}
+                                <button
+                                    onClick={() => { playSound('click'); handleLogout(); }}
+                                    className="mt-6 mb-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-widest flex items-center gap-2 active:scale-95 transition-all"
+                                >
+                                    <LogOut size={16} /> Quit Console
+                                </button>
+                            </div>
+                        )}
+
+                        {data && isSalesman ? (
                             <>
                                 {/* Animated Stats Summary - SUPER PREMIUM DESIGN */}
                                 <div className="p-8 pb-10 rounded-[2.5rem] relative overflow-hidden group border border-white/5 bg-gradient-to-br from-slate-900 via-[#0a0f1d] to-[#040814] shadow-[0_20px_50px_rgba(0,0,0,0.5)] mt-4">
@@ -1244,8 +1746,8 @@ export default function Dashboard({ salesmanID, authUID }) {
                                             COMBINED INTAKE
                                         </span>
                                         <div className="flex items-center justify-center w-full">
-                                            <span className="text-4xl min-[380px]:text-5xl sm:text-6xl font-black text-white tracking-tighter drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] my-1 truncate max-w-[90vw]">
-                                                ₹{(selectedRoute ? routeStats.currentRouteTotal : (data?.total_outstanding || 0)).toLocaleString('en-IN')}
+                                            <span className="text-3xl min-[380px]:text-5xl sm:text-6xl font-black text-white tracking-tighter drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] my-1 truncate max-w-[90vw]">
+                                                ₹{(selectedRoute ? routeStats.currentRouteTotal : computedTotalOutstanding).toLocaleString('en-IN')}
                                             </span>
                                         </div>
 
@@ -1257,7 +1759,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                                             <div className="w-2 h-2 rounded-full bg-rose-500  shrink-0"></div>
                                             <div className="flex flex-col items-center justify-center leading-none">
                                                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Outstanding</span>
-                                                <span className="text-sm font-black text-white tracking-tight">₹{(data?.total_outstanding || 0).toLocaleString('en-IN')}</span>
+                                                <span className="text-sm font-black text-white tracking-tight">₹{computedTotalOutstanding.toLocaleString('en-IN')}</span>
                                             </div>
                                             <ChevronRight size={14} className="text-slate-400 group-hover:text-white transition-colors shrink-0" />
                                         </button>
@@ -1274,45 +1776,73 @@ export default function Dashboard({ salesmanID, authUID }) {
                                         </div>
                                     </div>
                                 )}
+
+                                {/* NEW: Delivery Day Summary Shortcut */}
+                                {selectedDailyRoute && (
+                                    <button
+                                        onClick={() => { playSound('click'); setView('DAY_SUMMARY'); }}
+                                        className="group relative overflow-hidden bg-slate-900/40 p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10 mt-2"
+                                    >
+                                        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                        <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
+                                                    <Truck size={24} className="text-white drop-shadow-md" />
+                                                </div>
+                                                <div className="text-left">
+                                                    <h3 className="text-base font-black text-white tracking-tight group-hover:text-emerald-400 transition-colors">Day Summary</h3>
+                                                    <p className="text-slate-500 text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5">Tally Today's Load</p>
+                                                </div>
+                                            </div>
+                                            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-emerald-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
+                                                <ArrowRight size={16} />
+                                            </div>
+                                        </div>
+                                    </button>
+                                )}
                             </>
                         ) : (
-                            <div className="py-4 space-y-3">
-                                {!selectedRoute && !loading && (
-                                    <div className="bg-red-500/10 border border-red-500/20 p-6 rounded-[2rem] text-center animate-fade-in mb-4">
-                                        <AlertCircle size={32} className="text-red-400 mx-auto mb-3" />
-                                        <h3 className="text-lg font-black text-red-200 uppercase tracking-tight">No Route Assigned for Today</h3>
-                                        <p className="text-red-400/80 text-xs font-bold mt-1 uppercase tracking-wider mb-2">Please contact Admin to set up your schedule.</p>
+                            targetData?.role !== 'delivery' && localStorage.getItem('jarwis_role') !== 'delivery' ? (
+                                <div className="py-4 space-y-3">
+                                    {!selectedRoute && !loading && (
+                                        <div className="bg-red-500/10 border border-red-500/20 p-6 rounded-[2rem] text-center animate-fade-in mb-4">
+                                            <AlertCircle size={32} className="text-red-400 mx-auto mb-3" />
+                                            <h3 className="text-lg font-black text-red-200 uppercase tracking-tight">No Route Assigned for Today</h3>
+                                            <p className="text-red-400/80 text-xs font-bold mt-1 uppercase tracking-wider mb-2">Please contact Admin to set up your schedule.</p>
 
-                                        <div className="mt-4 p-3 bg-red-950/40 rounded-xl text-left border border-red-500/10 text-[10px] font-mono text-red-300">
-                                            <p><strong>Date Check:</strong> {new Date().toLocaleDateString('en-IN', { weekday: 'long' })}</p>
-                                            <p><strong>ID Check:</strong> {activeAccountID}</p>
-                                            <p><strong>Plan Found:</strong> {masterPlan ? "YES" : "NO"}</p>
-                                            <p><strong>Keys:</strong> {masterPlan ? Object.keys(masterPlan.routes || masterPlan.Routes || {}).join(', ') : 'N/A'}</p>
+                                            <div className="mt-4 p-3 bg-red-950/40 rounded-xl text-left border border-red-500/10 text-[10px] font-mono text-red-300">
+                                                <p><strong>Date Check:</strong> {new Date().toLocaleDateString('en-IN', { weekday: 'long' })}</p>
+                                                <p><strong>ID Check:</strong> {activeAccountID}</p>
+                                                <p><strong>Plan Found:</strong> {masterPlan ? "YES" : "NO"}</p>
+                                                <p><strong>Keys:</strong> {masterPlan ? Object.keys(masterPlan.routes || masterPlan.Routes || {}).join(', ') : 'N/A'}</p>
+                                            </div>
                                         </div>
+                                    )}
+                                    <div className="flex items-center gap-3 text-red-400 bg-red-500/5 p-4 rounded-2xl border border-red-500/10">
+                                        <AlertCircle size={20} className="shrink-0" />
+                                        <p className="text-sm font-black uppercase tracking-widest leading-tight">
+                                            NO CLOUD DATA MAPPED TO "{salesmanID}"
+                                        </p>
                                     </div>
-                                )}
-                                <div className="flex items-center gap-3 text-red-400 bg-red-500/5 p-4 rounded-2xl border border-red-500/10">
-                                    <AlertCircle size={20} className="shrink-0" />
-                                    <p className="text-sm font-black uppercase tracking-widest leading-tight">
-                                        NO CLOUD DATA MAPPED TO "{salesmanID}"
-                                    </p>
+                                    <div className="bg-white/[0.02] p-5 rounded-[1.5rem] border border-white/5 shadow-inner">
+                                        <p className="text-slate-500 text-[10px] font-bold leading-relaxed uppercase tracking-wider">
+                                            1. Open the JARWIS PRO Python App.<br />
+                                            2. "Load Sales Data" and check the pop-up summary.<br />
+                                            3. If "{salesmanID}" is NOT in the "Salesmen Identified" list, your shops need matching in the Master DB.
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="bg-white/[0.02] p-5 rounded-[1.5rem] border border-white/5 shadow-inner">
-                                    <p className="text-slate-500 text-[10px] font-bold leading-relaxed uppercase tracking-wider">
-                                        1. Open the JARWIS PRO Python App.<br />
-                                        2. "Load Sales Data" and check the pop-up summary.<br />
-                                        3. If "{salesmanID}" is NOT in the "Salesmen Identified" list, your shops need matching in the Master DB.
-                                    </p>
-                                </div>
-                            </div>
+                            ) : null
                         )}
                         <div className="mt-auto"></div>
                     </div>
 
                     {/* ----------------- SLIDE 2: COMPANY TARGETS ----------------- */}
                     {(() => {
+                        // Identify company for target calculation
                         const plan = allMasterPlans[activeAccountID];
                         const company = plan?.company || plan?.Company;
+
                         if (!company || company === 'Other' || !data) return null;
 
                         const companyConfigs = {
@@ -1323,24 +1853,8 @@ export default function Dashboard({ salesmanID, authUID }) {
 
                         const config = companyConfigs[company] || { color: 'from-blue-600 via-blue-500 to-indigo-500', glow: 'rgba(59,130,246,0.4)', text: 'text-blue-400' };
 
-                        // Memoize Company-wise Totals to fix INP bottleneck
-                        const { companyTarget, companyAchieved, percentage } = useMemo(() => {
-                            let t = 0;
-                            let a = 0;
-
-                            allSalesmenTargets.forEach(targetRow => {
-                                const sPlan = allMasterPlans[targetRow.salesman_id];
-                                const sComp = sPlan?.company || sPlan?.Company;
-                                if (sComp === company) {
-                                    t += Number(targetRow.monthly_target || 0);
-                                    a += Number(targetRow.achieved || 0);
-                                }
-                            });
-                            const p = t === 0 ? 0 : Math.min(Math.round((a / t) * 100), 100);
-                            return { companyTarget: t, companyAchieved: a, percentage: p };
-                        }, [allSalesmenTargets, allMasterPlans, company]);
-
-                        if (companyTarget === 0) return null;
+                        const companyStats = allCompanyStats[company] || { companyTarget: 0, companyAchieved: 0, percentage: 0 };
+                        if (companyStats.companyTarget === 0) return null;
 
                         return (
                             <div className="min-w-full w-full h-full shrink-0 snap-center snap-always px-6 flex flex-col justify-center pb-6">
@@ -1361,9 +1875,9 @@ export default function Dashboard({ salesmanID, authUID }) {
 
                                         <div className="flex flex-col items-center mt-3">
                                             <span className="text-5xl font-black text-white italic tracking-tighter drop-shadow-2xl mb-1">
-                                                ₹{companyAchieved.toLocaleString('en-IN')}
+                                                ₹{companyStats.companyAchieved.toLocaleString('en-IN')}
                                             </span>
-                                            <span className="text-slate-500 text-[11px] font-black tracking-[0.2em] uppercase opacity-60">TARGET: ₹{companyTarget.toLocaleString('en-IN')}</span>
+                                            <span className="text-slate-500 text-[11px] font-black tracking-[0.2em] uppercase opacity-60">TARGET: ₹{companyStats.companyTarget.toLocaleString('en-IN')}</span>
                                         </div>
 
                                         <div className={`mt-8 px-8 py-3 rounded-full border border-white/10 bg-[#121828] shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex items-center gap-3  group-hover:bg-[#1a2336] group-hover:border-white/20 transition-all`}>
@@ -1371,7 +1885,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                                                 className={`w-2 h-2 rounded-full bg-gradient-to-r ${config.color} `}
                                                 style={{ boxShadow: `0 0 12px ${config.glow}` }}
                                             ></div>
-                                            <span className="text-xs font-black text-slate-100 tracking-[0.2em]">{percentage}% COMPLETED</span>
+                                            <span className="text-xs font-black text-slate-100 tracking-[0.2em]">{companyStats.percentage}% COMPLETED</span>
                                         </div>
                                     </div>
 
@@ -1379,7 +1893,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                                         <div
                                             className={`h-full bg-gradient-to-r ${config.color} transition-all duration-1000 relative overflow-hidden`}
                                             style={{
-                                                width: `${percentage}%`,
+                                                width: `${companyStats.percentage}%`,
                                                 boxShadow: `0 0 15px ${config.glow}`
                                             }}
                                         >
@@ -1464,7 +1978,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                     })}
 
                     {/* Delivery Console Hub Options */}
-                    {availableDailyRoutes.length > 0 && (
+                    {!tLoading && availableDailyRoutes.length > 0 && (
                         <div className="mt-8">
                             <h3 className="text-sm font-black text-emerald-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                                 <Truck size={16} /> Delivery Hubs
@@ -1479,6 +1993,11 @@ export default function Dashboard({ salesmanID, authUID }) {
                                                     playSound('click');
                                                     React.startTransition(() => {
                                                         setSelectedDailyRoute(routeObj);
+                                                        localStorage.setItem('current_delivery_route', JSON.stringify({
+                                                            routeName: routeObj.route_name,
+                                                            date: new Date().toDateString()
+                                                        }));
+                                                        setDeliverySubRoute('ALL'); // Reset sub-route filter
                                                         setRouteFilterMode('TODAY');
                                                         setSelectedRoute(null); // Clear sales route
                                                         setView('OUTSTANDING_LIST');
@@ -1486,16 +2005,26 @@ export default function Dashboard({ salesmanID, authUID }) {
                                                 }}
                                                 className={`w-full p-6 rounded-3xl border transition-all active:scale-[0.98] text-left group shadow-xl flex justify-between items-center bg-slate-900/40 border-white/10 hover:border-emerald-500/40 hover:bg-slate-900`}
                                             >
-                                                <div>
-                                                    <span className={`font-black text-lg tracking-tight text-white`}>
-                                                        {routeObj.route_name}
-                                                    </span>
-                                                    <p className={`text-[10px] uppercase font-black tracking-wider mt-1 text-emerald-400/80`}>
-                                                        {Object.keys(routeObj.shops || {}).length} Drops Assigned
-                                                    </p>
+                                                <div className="flex items-center gap-4">
+                                                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-transform bg-emerald-500/20 text-emerald-400 group-hover:scale-110`}>
+                                                        <Truck size={20} />
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`font-black text-lg tracking-tight text-white`}>
+                                                                {routeObj.route_name}
+                                                            </span>
+                                                            {globalDeliveryRoutes.some(gr => gr.route_name === routeObj.route_name) && (
+                                                                <span className="bg-emerald-500 text-[8px] font-black px-1.5 py-0.5 rounded text-slate-950 uppercase tracking-tighter">New Load</span>
+                                                            )}
+                                                        </div>
+                                                        <p className={`text-[10px] uppercase font-black tracking-wider mt-1 text-emerald-400/80`}>
+                                                            {Object.keys(routeObj.shops || {}).length} Drops Assigned
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-transform bg-emerald-500/20 text-emerald-400 group-hover:scale-110`}>
-                                                    <Truck size={20} />
+                                                <div className="w-8 h-8 rounded-full border border-white/5 flex items-center justify-center text-emerald-500/50 group-hover:text-emerald-400 group-hover:border-emerald-500/30 transition-all">
+                                                    <ArrowRight size={14} />
                                                 </div>
                                             </button>
                                         </div>
@@ -1520,113 +2049,112 @@ export default function Dashboard({ salesmanID, authUID }) {
 
     // Outstanding List View (Using User's Card Style)
     const OutstandingListView = () => {
-        // Pre-calculate grouped shops once instead of inside rendering
-        const groupedShops = useMemo(() => {
-            const grouped = [];
-            const groups = {};
-
-            filteredBills.forEach(bill => {
-                const key = bill.Party || 'Unknown Shop';
-                if (!groups[key]) {
-                    groups[key] = {
-                        name: key,
-                        bills: [],
-                        totalAmount: 0,
-                        maxOverdue: 0,
-                        phone: bill.Phone || null,
-                        shop_id: bill.shop_id || bill.ShopID || bill.id
-                    };
-                    grouped.push(groups[key]);
-                }
-                groups[key].bills.push(bill);
-                groups[key].totalAmount += Number(bill.Amount || 0);
-                groups[key].maxOverdue = Math.max(groups[key].maxOverdue, Number(bill.Overdue || 0));
-                if (!groups[key].phone && bill.Phone) groups[key].phone = bill.Phone;
-
-                // Pre-calculate date string and timestamp
-                let bDateStr = 'N/A';
-                let dt = 0;
-                try {
-                    if (bill.Date) {
-                        const dStr = String(bill.Date);
-                        let dateObj;
-                        if (dStr.includes('/')) {
-                            const [d, m, y] = dStr.split('/');
-                            dateObj = new Date(y, m - 1, d);
-                        } else if (dStr.includes('-')) {
-                            const parts = dStr.split('-');
-                            if (parts[0].length === 4) dateObj = new Date(dStr);
-                            else {
-                                const [d, m, y] = parts;
-                                dateObj = new Date(y, m - 1, d);
-                            }
-                        } else {
-                            dateObj = new Date(dStr);
-                        }
-                        if (!isNaN(dateObj)) {
-                            dt = dateObj.getTime();
-                            const day = String(dateObj.getDate()).padStart(2, '0');
-                            const month = dateObj.toLocaleString('en-US', { month: 'short' });
-                            bDateStr = `${day} ${month}`;
-                        }
-                    }
-                } catch (e) { }
-
-                bill._precal_date_str = bDateStr;
-                bill._precal_date_ms = dt;
-            });
-
-            grouped.sort((a, b) => b.maxOverdue - a.maxOverdue);
-            grouped.forEach(shop => shop.bills.sort((a, b) => a._precal_date_ms - b._precal_date_ms));
-            return grouped;
-        }, [filteredBills]);
 
         return (
-            <div className="px-5 pb-20 space-y-4">
-                {/* Route Header with Toggle */}
-                <div className="flex flex-col gap-4 mb-6">
-                    {!isSalesman && (
-                        <div className="flex bg-slate-800/50 p-1.5 rounded-full border border-white/5 relative">
-                            {/* Sliding Background */}
-                            <div className={`absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-blue-600 rounded-full shadow-lg transition-all duration-300 ease-out ${routeFilterMode === 'TODAY' ? 'left-1.5' : 'left-[calc(50%+3px)]'}`}></div>
+            <>
+                {/* 1. STICKY HEADER SECTION */}
+                <div className="sticky top-0 z-[100] bg-slate-950 px-5 pt-3 pb-2 border-b border-white/5 space-y-3 shadow-xl">
 
+                    {/* UNIFIED SEARCH BAR */}
+                    <div className="relative group">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                            <Search size={14} className="text-slate-500 group-focus-within:text-blue-400 transition-colors" />
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Find shop by name..."
+                            value={shopSearchQuery}
+                            onChange={(e) => setShopSearchQuery(e.target.value)}
+                            className="w-full bg-slate-900 border border-white/10 rounded-2xl py-2.5 pl-10 pr-4 text-white font-bold text-xs focus:outline-none focus:border-blue-500/50 hover:border-white/20 transition-all placeholder:text-slate-600"
+                        />
+                        {shopSearchQuery && (
+                            <button
+                                onClick={() => setShopSearchQuery('')}
+                                className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-500 hover:text-white"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* COMPACT ROUTE TOGGLE (Only if not salesman) */}
+                    {!isSalesman && (
+                        <div className="flex bg-slate-800/40 p-1 rounded-full border border-white/5 relative">
+                            <div className={`absolute top-1 bottom-1 w-[calc(50%-4px)] bg-blue-600/80 rounded-full shadow-lg transition-all duration-300 ease-out ${routeFilterMode === 'TODAY' ? 'left-1' : 'left-[calc(50%+3px)]'}`}></div>
                             <button
                                 onClick={() => React.startTransition(() => { setRouteFilterMode('TODAY'); })}
-                                className={`flex-1 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors ${routeFilterMode === 'TODAY' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                                className={`flex-1 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest relative z-10 transition-colors ${routeFilterMode === 'TODAY' ? 'text-white' : 'text-slate-500 hover:text-white'}`}
                             >
                                 Today's Route
                             </button>
                             <button
                                 onClick={() => React.startTransition(() => { setRouteFilterMode('ALL'); })}
-                                className={`flex-1 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest relative z-10 transition-colors ${routeFilterMode === 'ALL' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                                className={`flex-1 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest relative z-10 transition-colors ${routeFilterMode === 'ALL' ? 'text-white' : 'text-slate-500 hover:text-white'}`}
                             >
-                                All My Routes
+                                All Routes
                             </button>
                         </div>
                     )}
 
-                    <div className="flex items-center justify-between px-2">
-                        <h2 className="text-sm font-bold text-slate-300 flex items-center gap-2">
-                            {routeFilterMode === 'TODAY' ? (
-                                <>
-                                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]"></span>
-                                    {selectedRoute || 'No Route Assigned'}
-                                </>
+                    {/* COMPACT SUMMARY BANNER (Delivery Mode) - Reserved Space to fix CLS */}
+                    {!isSalesman && routeFilterMode === 'TODAY' && (
+                        <div className="min-h-[70px]">
+                            {selectedDailyRoute ? (
+                                <div className="bg-gradient-to-r from-emerald-950/80 to-blue-950/40 p-3.5 rounded-2xl border border-emerald-500/20 shadow-lg flex items-center justify-between relative overflow-hidden animate-fade-in">
+                                    <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-[20px] -mr-8 -mt-8 pointer-events-none"></div>
+
+                                    <div className="relative z-10">
+                                        <p className="text-[8px] text-emerald-400/80 font-black uppercase tracking-[0.2em] mb-0.5">Today's Collection</p>
+                                        <p className="text-xl font-black text-white tracking-tighter">₹{(deliveryStats?.Total || 0).toLocaleString('en-IN')}</p>
+                                    </div>
+
+                                    <div className="text-right relative z-10">
+                                        <p className="text-[8px] text-slate-500 font-black uppercase tracking-[0.2em] mb-0.5">Day Load</p>
+                                        <p className="text-sm font-black text-slate-300">₹{(routeStats?.currentRouteTotal || 0).toLocaleString('en-IN')}</p>
+                                    </div>
+                                </div>
                             ) : (
-                                <>
-                                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
-                                    Full Portfolio
-                                </>
+                                <div className="w-full h-[70px] bg-slate-900/50 rounded-2xl animate-pulse flex items-center justify-center border border-white/5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-slate-700 animate-bounce"></div>
+                                </div>
                             )}
-                        </h2>
-                        <span className="text-[10px] text-slate-500 font-bold bg-slate-900/50 px-2.5 py-1 rounded-lg border border-white/5">
-                            {filteredBills.length} BILLS
+                        </div>
+                    )}
+
+                    {/* COMPACT ROUTE NAME & COUNT INFO LINE */}
+                    <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-2 overflow-hidden min-w-0">
+                            <span className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)] ${routeFilterMode === 'TODAY' ? 'bg-blue-500' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'}`}></span>
+                            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">
+                                {routeFilterMode === 'TODAY' ? (selectedDailyRoute ? selectedDailyRoute.route_name : (selectedRoute || 'Main Route')) : 'Full Portfolio'}
+                            </h2>
+                        </div>
+                        <span className="text-[9px] text-slate-500 font-black bg-slate-900 border border-white/5 px-2 py-0.5 rounded-md shrink-0">
+                            {groupedShops.length} SHOPS
                         </span>
                     </div>
+
+                    {/* SUB-ROUTE FILTER (Only for Delivery) */}
+                    {!isSalesman && selectedDailyRoute && (
+                        <div className="relative mt-1">
+                            <select
+                                className="w-full bg-slate-900/50 border border-white/5 rounded-xl py-2 pl-3 pr-8 text-white font-bold text-[9px] appearance-none focus:outline-none focus:border-blue-500/30 transition-colors"
+                                value={deliverySubRoute}
+                                onChange={(e) => setDeliverySubRoute(e.target.value)}
+                            >
+                                <option value="ALL">Show All Sectors ({Object.keys(selectedDailyRoute.shops).length} Shops)</option>
+                                {availableDeliverySubRoutes.map(route => (
+                                    <option key={route} value={route}>{route}</option>
+                                ))}
+                            </select>
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                                <ChevronDown size={12} />
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                {/* Bill List grouped by Shop - USING VIRTUOSO FOR PERFORMANCE */}
-                <div className="space-y-6">
+                <div className="px-5 pt-2 pb-20">
                     <Virtuoso
                         useWindowScroll
                         data={groupedShops}
@@ -1648,15 +2176,16 @@ export default function Dashboard({ salesmanID, authUID }) {
                                 accentColor = "bg-emerald-600";
                             }
 
+                            const fullyCollected = !isSalesman && shop.bills.every(b => b._isCollected);
+
                             return (
-                                <div key={shop.shop_id || index} className={`mb-4 group relative p-3 pl-4 rounded-2xl overflow-hidden min-h-fit border ${themeClass} shadow-lg shadow-black/20`}>
+                                <div key={shop.shop_id || index} className={`mb-3 group relative p-2 pl-3 rounded-2xl overflow-hidden min-h-fit border ${themeClass} shadow-lg shadow-black/20 transition-all ${fullyCollected ? 'opacity-50 grayscale' : ''}`}>
                                     {/* VERTICAL ACCENT BAR */}
                                     <div className={`absolute left-0 top-0 bottom-0 w-1 ${accentColor}`}></div>
 
-                                    {/* --- TOP SECTION: NAME & TOTAL AMOUNT --- */}
-                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 relative z-20 gap-3 sm:gap-0">
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 relative z-20 gap-2 sm:gap-0">
                                         <div className="flex-1 pr-0 sm:pr-4 w-full min-w-0">
-                                            <h3 className="font-black text-lg sm:text-2xl text-white leading-tight tracking-tight uppercase block">
+                                            <h3 className="font-black text-base sm:text-xl text-white leading-tight tracking-tight uppercase block break-words overflow-wrap-anywhere">
                                                 {shop.name}
                                             </h3>
                                             <div className="flex flex-wrap items-center gap-2 mt-2 relative">
@@ -1760,7 +2289,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                                     </div>
 
                                     {/* --- BOTTOM SECTION: ACTIONS --- */}
-                                    <div className="flex items-center justify-between pt-3 border-t border-white/5">
+                                    <div className="flex items-center justify-between pt-3 border-t border-white/5 gap-3">
                                         <div className="flex gap-2">
                                             {shop.phone && (
                                                 <a
@@ -1785,10 +2314,18 @@ export default function Dashboard({ salesmanID, authUID }) {
                                             const remainingBalance = Math.max(0, shop.totalAmount - shopPendingAmount);
                                             const isFullyPending = remainingBalance < 1;
 
+                                            if (fullyCollected) {
+                                                return (
+                                                    <button disabled={true} className="ml-3 flex-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 font-black text-xs uppercase tracking-widest py-2 rounded-lg flex items-center justify-center gap-2">
+                                                        COLLECTED
+                                                    </button>
+                                                );
+                                            }
+
                                             return isFullyPending ? (
                                                 <button
                                                     disabled={true}
-                                                    className="ml-3 flex-1 bg-orange-500/10 border border-orange-500/20 text-orange-400 font-bold text-[9px] uppercase tracking-widest py-2 rounded-lg"
+                                                    className="flex-1 bg-orange-500/10 border border-orange-500/20 text-orange-400 font-bold text-[9px] uppercase tracking-widest py-2 rounded-lg"
                                                 >
                                                     {shopPendingAmount > 0 ? 'VERIFYING...' : 'PENDING'}
                                                 </button>
@@ -1801,9 +2338,9 @@ export default function Dashboard({ salesmanID, authUID }) {
                                                         setPrefilledAmount(remainingBalance.toString());
                                                         setIsPaymentModalOpen(true);
                                                     }}
-                                                    className="ml-3 flex-1 bg-emerald-600 active:bg-emerald-700 text-white font-black text-sm uppercase py-2.5 rounded-lg flex items-center justify-center gap-2 border border-emerald-500/20"
+                                                    className="flex-1 bg-emerald-600 active:bg-emerald-700 text-white font-black text-sm uppercase py-2.5 rounded-lg flex items-center justify-center gap-1 border border-emerald-500/20 min-w-0"
                                                 >
-                                                    <span className="text-xs">Collect ₹{remainingBalance.toLocaleString('en-IN')}</span>
+                                                    <span className="text-[10px] min-[380px]:text-xs whitespace-nowrap overflow-hidden text-ellipsis">Collect ₹{remainingBalance.toLocaleString('en-IN')}</span>
                                                 </button>
                                             );
                                         })()}
@@ -1875,7 +2412,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                         }}
                     />
                 </div>
-            </div>
+            </>
         );
     };
 
@@ -1944,7 +2481,7 @@ export default function Dashboard({ salesmanID, authUID }) {
                 <div className="mt-8 p-8 bg-gradient-to-br from-indigo-900/40 to-blue-900/40 border border-white/5 rounded-[2.5rem] shadow-2xl relative overflow-hidden group">
                     <div className="absolute -top-10 -right-10 w-40 h-40 bg-indigo-600/10 rounded-full blur-[60px] group-hover:bg-indigo-600/20 transition-all duration-700"></div>
                     <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] mb-2">Portfolio Total Exposure</p>
-                    <p className="text-4xl font-black text-white tracking-tighter drop-shadow-xl">
+                    <p className="text-3xl font-black text-white tracking-tighter drop-shadow-xl">
                         ₹{(data?.total_outstanding || 0).toLocaleString('en-IN')}
                     </p>
                     <div className="mt-6 flex items-center gap-2">
@@ -2061,15 +2598,34 @@ export default function Dashboard({ salesmanID, authUID }) {
 
     // Reports View
     const ReportsView = () => {
-        const today = new Date().setHours(0, 0, 0, 0);
-        const todayPayments = pendingRequests
-            .filter(req => req.timestamp?.toDate().setHours(0, 0, 0, 0) === today)
-            .sort((a, b) => b.timestamp?.toMillis() - a.timestamp?.toMillis());
+        const todayPayments = useMemo(() => {
+            const todayDate = new Date();
+            todayDate.setHours(0, 0, 0, 0);
+            const todayMs = todayDate.getTime();
+
+            return pendingRequests
+                .filter(req => {
+                    if (!req.timestamp) return false;
+                    const ts = typeof req.timestamp.toMillis === 'function' ? req.timestamp.toMillis() : 0;
+                    if (!ts) return false;
+                    const reqDate = new Date(ts);
+                    reqDate.setHours(0, 0, 0, 0);
+                    return reqDate.getTime() === todayMs;
+                })
+                .filter(req => reportsFilter === 'All' || String(req.payment_type).toLowerCase() === reportsFilter.toLowerCase())
+                .sort((a, b) => {
+                    const aMs = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+                    const bMs = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+                    return bMs - aMs;
+                });
+        }, [pendingRequests, reportsFilter]);
 
         return (
             <div className="px-6 pb-20 space-y-6">
                 <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-bold text-white">Daily Summary</h2>
+                    <h2 className="text-xl font-bold text-white">
+                        {reportsFilter === 'All' ? 'Daily Summary' : `${reportsFilter} Collections`}
+                    </h2>
                     <button
                         onClick={() => generatePDF(todayPayments)}
                         className="text-[10px] bg-emerald-600/20 text-emerald-400 px-3 py-1.5 rounded-xl font-bold uppercase tracking-widest border border-emerald-500/20 flex items-center gap-2 hover:bg-emerald-600/30 transition-colors"
@@ -2078,39 +2634,61 @@ export default function Dashboard({ salesmanID, authUID }) {
                     </button>
                 </div>
 
-                {/* Stats Grid */}
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-slate-800/40 p-5 rounded-3xl border border-white/5 col-span-2">
-                        <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Total Collected</p>
-                        <p className="text-3xl font-black text-white">₹{todayStats.Total.toLocaleString('en-IN')}</p>
-                    </div>
-                    <div className="bg-emerald-500/10 p-4 rounded-3xl border border-emerald-500/20 flex flex-col items-center justify-center">
-                        <div className="flex items-center gap-2 mb-1">
-                            <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                            <p className="text-emerald-500 text-[10px] font-black uppercase">Cash</p>
+                {/* Stats Grid - Only show when viewing All types */}
+                {reportsFilter === 'All' && (
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-slate-800/40 p-5 rounded-3xl border border-white/5 col-span-2">
+                            <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Total Collected</p>
+                            <p className="text-3xl font-black text-white">₹{todayStats.Total.toLocaleString('en-IN')}</p>
                         </div>
-                        <p className="text-xl font-black text-emerald-400">₹{todayStats.Cash.toLocaleString('en-IN')}</p>
-                    </div>
-                    <div className="bg-blue-500/10 p-4 rounded-3xl border border-blue-500/20 flex flex-col items-center justify-center">
-                        <div className="flex items-center gap-2 mb-1">
-                            <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                            <p className="text-blue-500 text-[10px] font-black uppercase">UPI</p>
+                        <div className="bg-emerald-500/10 p-4 rounded-3xl border border-emerald-500/20 flex flex-col items-center justify-center">
+                            <div className="flex items-center gap-2 mb-1">
+                                <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                                <p className="text-emerald-500 text-[10px] font-black uppercase">Cash</p>
+                            </div>
+                            <p className="text-xl font-black text-emerald-400">₹{todayStats.Cash.toLocaleString('en-IN')}</p>
                         </div>
-                        <p className="text-xl font-black text-blue-400">₹{todayStats.UPI.toLocaleString('en-IN')}</p>
-
-                    </div>
-                    <div className="bg-purple-500/10 p-4 rounded-3xl border border-purple-500/20 flex flex-col items-center justify-center">
-                        <div className="flex items-center gap-2 mb-1">
-                            <div className="w-2 h-2 rounded-full bg-purple-500"></div>
-                            <p className="text-purple-500 text-[10px] font-black uppercase">Cheque</p>
+                        <div className="bg-blue-500/10 p-4 rounded-3xl border border-blue-500/20 flex flex-col items-center justify-center">
+                            <div className="flex items-center gap-2 mb-1">
+                                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                <p className="text-blue-500 text-[10px] font-black uppercase">UPI</p>
+                            </div>
+                            <p className="text-xl font-black text-blue-400">₹{todayStats.UPI.toLocaleString('en-IN')}</p>
                         </div>
-                        <p className="text-xl font-black text-purple-400">₹{todayStats.Cheque.toLocaleString('en-IN')}</p>
+                        <div className="bg-purple-500/10 p-4 rounded-3xl border border-purple-500/20 flex flex-col items-center justify-center">
+                            <div className="flex items-center gap-2 mb-1">
+                                <div className="w-2 h-2 rounded-full bg-purple-500"></div>
+                                <p className="text-purple-500 text-[10px] font-black uppercase">Cheque</p>
+                            </div>
+                            <p className="text-xl font-black text-purple-400">₹{todayStats.Cheque.toLocaleString('en-IN')}</p>
+                        </div>
+                        <div className="bg-fuchsia-500/10 p-4 rounded-3xl border border-fuchsia-500/20 flex flex-col items-center justify-center">
+                            <div className="flex items-center gap-2 mb-1">
+                                <div className="w-2 h-2 rounded-full bg-fuchsia-500"></div>
+                                <p className="text-fuchsia-500 text-[10px] font-black uppercase">Credit</p>
+                            </div>
+                            <p className="text-xl font-black text-fuchsia-400">₹{(todayStats.Credit || 0).toLocaleString('en-IN')}</p>
+                        </div>
+                        <div className="bg-rose-500/10 p-4 rounded-3xl border border-rose-500/20 flex flex-col items-center justify-center">
+                            <div className="flex items-center gap-2 mb-1">
+                                <div className="w-2 h-2 rounded-full bg-rose-500"></div>
+                                <p className="text-rose-500 text-[10px] font-black uppercase">Returns</p>
+                            </div>
+                            <p className="text-xl font-black text-rose-400">₹{(todayStats.Less || 0).toLocaleString('en-IN')}</p>
+                        </div>
+                        <div className="bg-slate-800/40 p-4 rounded-3xl border border-white/5 col-span-2 flex justify-between items-center px-6">
+                            <div className="text-left">
+                                <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Total Bills</p>
+                                <p className="text-xl font-bold text-white">{todayStats.count}</p>
+                            </div>
+                            <div className="w-px h-8 bg-white/10"></div>
+                            <div className="text-right">
+                                <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Avg/Bill</p>
+                                <p className="text-lg font-bold text-slate-300">₹{todayStats.count > 0 ? Math.round(todayStats.Total / todayStats.count).toLocaleString('en-IN') : 0}</p>
+                            </div>
+                        </div>
                     </div>
-                    <div className="bg-slate-800/40 p-4 rounded-3xl border border-white/5">
-                        <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Total Bills</p>
-                        <p className="text-xl font-bold text-white">{todayStats.count}</p>
-                    </div>
-                </div>
+                )}
 
                 <h3 className="text-slate-400 text-sm font-bold uppercase tracking-wider ml-2 pt-2">Today's History</h3>
 
@@ -2170,6 +2748,40 @@ export default function Dashboard({ salesmanID, authUID }) {
                         <p className="text-slate-500 text-xs font-bold mt-2 uppercase">Please contact Admin to set your monthly goals.</p>
                         <button onClick={() => setView('HOME')} className="mt-8 px-8 py-3 bg-slate-800 rounded-full text-white font-bold hover:bg-slate-700 transition">Go Back</button>
                     </div>
+
+                    {/* MOVED: Show Delivery Hub even if no target is set (Delivery roles) */}
+                    <div className="mt-10">
+                        {!tLoading && availableDailyRoutes.length > 0 && !selectedRoute && !selectedDailyRoute && (
+                            <div className="w-full space-y-3 mb-4 animate-in slide-in-from-bottom duration-700">
+                                <div className="flex items-center justify-center gap-2 mb-2">
+                                    <div className="w-12 h-[1px] bg-gradient-to-r from-transparent to-emerald-500/40"></div>
+                                    <div className="bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+                                        <h3 className="text-emerald-400 text-[10px] font-black uppercase tracking-[0.4em]">Delivery Hub</h3>
+                                    </div>
+                                    <div className="w-12 h-[1px] bg-gradient-to-l from-transparent to-emerald-500/40"></div>
+                                </div>
+                                <button
+                                    onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
+                                    className="w-full relative overflow-hidden bg-gradient-to-r from-emerald-600 to-teal-600 p-4 rounded-3xl border border-emerald-500/30 flex items-center justify-between group active:scale-[0.98] transition-all shadow-[0_10px_30px_rgba(16,185,129,0.2)]"
+                                >
+                                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-500 blur-md"></div>
+                                    <div className="flex items-center gap-4 relative z-10">
+                                        <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/20 text-white shadow-inner">
+                                            <Truck size={22} strokeWidth={2.5} />
+                                        </div>
+                                        <div className="text-left">
+                                            <h3 className="text-sm font-black text-white uppercase tracking-widest">Select Route</h3>
+                                            <p className="text-[10px] text-emerald-200 mt-0.5 font-bold tracking-widest uppercase">Start Delivery Run</p>
+                                        </div>
+                                    </div>
+                                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white relative z-10">
+                                        <ChevronRight size={16} />
+                                    </div>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
                 </div>
             );
         }
@@ -2240,18 +2852,6 @@ export default function Dashboard({ salesmanID, authUID }) {
                         </div>
                     </div>
                 </div>
-
-                {availableDailyRoutes.length > 0 && !selectedRoute && !selectedDailyRoute && (
-                    <div className="w-full space-y-3 mb-4 animate-in slide-in-from-bottom duration-700">
-                        <div className="flex items-center justify-center gap-2 mb-2">
-                            <div className="w-12 h-[1px] bg-gradient-to-r from-transparent to-emerald-500/40"></div>
-                            <div className="bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-                                <h3 className="text-emerald-400 text-[10px] font-black uppercase tracking-[0.4em]">Delivery Hub</h3>
-                            </div>
-                            <div className="w-12 h-[1px] bg-gradient-to-l from-transparent to-emerald-500/40"></div>
-                        </div>
-                    </div>
-                )}
 
                 {/* BADGE / ACHIEVEMENTS SECTION */}
                 {targetData?.awards?.length > 0 && (
@@ -2349,21 +2949,85 @@ export default function Dashboard({ salesmanID, authUID }) {
         );
     };
 
+    // Delivery Day Summary View
+    const DaySummaryView = () => {
+        const loadTotal = routeStats.currentRouteTotal;
+        const collectedTotal = deliveryStats.Total;
+        const remainingToCollect = Math.max(0, loadTotal - collectedTotal);
+
+        return (
+            <div className="px-6 pb-20 space-y-6 animate-fade-in">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-black text-white uppercase tracking-tight italic">
+                        <span className="text-emerald-500">Day</span> Settlement
+                    </h2>
+                    <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                        <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Live Load</span>
+                    </div>
+                </div>
+
+                {/* Main Progress Card */}
+                <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-8 rounded-[2.5rem] border border-white/5 shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-[40px] -mr-16 -mt-16"></div>
+
+                    <div className="text-center mb-6">
+                        <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] mb-2">Total Load Value</p>
+                        <h3 className="text-3xl font-black text-white tracking-tighter">₹{loadTotal.toLocaleString('en-IN')}</h3>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="bg-white/5 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Collected</span>
+                            <span className="text-lg font-black text-emerald-400">₹{collectedTotal.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="bg-white/5 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Balance Remaining</span>
+                            <span className="text-lg font-black text-rose-400">₹{remainingToCollect.toLocaleString('en-IN')}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Payment Type Breakdown */}
+                <div className="grid grid-cols-2 gap-4">
+                    {[
+                        { label: 'Cash', value: deliveryStats.Cash, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+                        { label: 'UPI', value: deliveryStats.UPI, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+                        { label: 'Cheque', value: deliveryStats.Cheque, color: 'text-purple-400', bg: 'bg-purple-500/10' },
+                        { label: 'Credit', value: deliveryStats.Credit, color: 'text-orange-400', bg: 'bg-orange-500/10' },
+                        { label: 'Returns/Less', value: deliveryStats.Less, color: 'text-rose-400', bg: 'bg-rose-500/10', full: true }
+                    ].map((stat, i) => (
+                        <div key={i} className={`${stat.bg} p-5 rounded-3xl border border-white/5 ${stat.full ? 'col-span-2' : ''} flex flex-col items-center justify-center text-center shadow-lg transition-transform active:scale-95`}>
+                            <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">{stat.label}</p>
+                            <p className={`text-xl font-black ${stat.color}`}>₹{stat.value.toLocaleString('en-IN')}</p>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="mt-8 p-6 bg-slate-800/40 rounded-[2rem] border border-white/5 text-center">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-relaxed">
+                        Verify your total collections with physical cash/checks before final submission.<br />Report any discrepancies to Admin.
+                    </p>
+                </div>
+            </div>
+        );
+    };
+
     return (
-        <div className={`bg-[#020617] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#020617] to-[#020617] text-slate-200 font-sans selection:bg-blue-500 selection:text-white overflow-x-hidden relative ${view === 'HOME' ? 'h-screen overflow-hidden flex flex-col' : 'min-h-screen'}`}>
+        <div className={`bg-[#020617] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#020617] to-[#020617] text-slate-200 font-sans selection:bg-blue-500 selection:text-white relative ${view === 'HOME' ? 'h-screen overflow-hidden flex flex-col' : 'min-h-screen overflow-x-hidden'}`}>
             {/* Vivid Background Elements (Optimized: Removed battery-draining animations on large blurred zones) */}
             <div className="fixed top-[-10%] right-[-10%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[120px] pointer-events-none z-0"></div>
             <div className="fixed bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-blue-600/10 rounded-full blur-[100px] pointer-events-none z-0"></div>
             <div className="fixed top-[30%] left-[10%] w-[300px] h-[300px] bg-indigo-500/10 rounded-full blur-[80px] pointer-events-none z-0"></div>
 
-            <div className={`animate-fade-in relative z-10 ${view === 'HOME' ? 'flex-1 flex flex-col overflow-hidden min-h-0' : ''}`}>
-                <Header />
+            <div className={`animate-fade-in relative z-10 ${view === 'HOME' ? 'flex-1 flex flex-col overflow-hidden min-h-0' : 'overflow-x-hidden'}`}>
+                {!(view === 'HOME' && !isSalesman) && <Header />}
                 {view === 'HOME' && <HomeView />}
                 {view === 'OUTSTANDING_ROUTE_SELECT' && <RouteSelectView />}
-                {view === 'OUTSTANDING_LIST' && <OutstandingListView />}
+                {view === 'OUTSTANDING_LIST' && OutstandingListView()}
                 {view === 'REPORTS' && <ReportsView />}
                 {view === 'SALES' && <SalesTargetView />}
                 {view === 'PORTFOLIO' && <PortfolioView />}
+                {view === 'DAY_SUMMARY' && <DaySummaryView />}
                 {view === 'BOUNCE' && (
                     <div className="h-[60vh] flex flex-col items-center justify-center text-center p-6">
                         <div className="p-6 bg-slate-800 rounded-full mb-6 ">
@@ -2379,14 +3043,14 @@ export default function Dashboard({ salesmanID, authUID }) {
             {/* TOTAL OUTSTANDING MODAL (Beat-wise breakdown) */}
             {isTotalOutstandingModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
-                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setIsTotalOutstandingModalOpen(false)}></div>
+                    <div className="absolute inset-0 bg-slate-950/90" onClick={() => setIsTotalOutstandingModalOpen(false)}></div>
                     <div className="bg-[#0b1121] border border-white/10 w-full sm:max-w-md rounded-t-[2.5rem] sm:rounded-3xl p-6 pb-12 sm:p-6 relative animate-slide-up shadow-2xl max-h-[85vh] flex flex-col">
                         <div className="w-12 h-1.5 bg-white/10 rounded-full mx-auto mb-6 shrink-0 sm:hidden"></div>
 
                         <div className="flex items-start justify-between mb-6 shrink-0">
                             <div>
                                 <h3 className="text-xl font-black text-white uppercase tracking-tight">Beat-Wise Outstanding</h3>
-                                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Total: ₹{(data?.total_outstanding || 0).toLocaleString('en-IN')}</p>
+                                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Total: ₹{computedTotalOutstanding.toLocaleString('en-IN')}</p>
                             </div>
                             <button onClick={() => setIsTotalOutstandingModalOpen(false)} className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
                                 <X size={20} />

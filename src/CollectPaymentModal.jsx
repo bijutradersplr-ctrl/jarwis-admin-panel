@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { db as dexieDB } from './db';
-import { X, Check, Banknote, CreditCard, Building2, Loader2, Smartphone, ChevronDown } from 'lucide-react';
+import { X, Check, Banknote, CreditCard, Building2, Loader2, Smartphone, ChevronDown, Clock } from 'lucide-react';
 
 export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID, onPaymentSuccess, initialAmount }) {
     const [amount, setAmount] = useState(initialAmount || '');
@@ -14,6 +14,7 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
     const [isSuccess, setIsSuccess] = useState(false);
     const [whatsappUrl, setWhatsappUrl] = useState('');
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [description, setDescription] = useState('');
 
     // Sync amount when bill changes or initialAmount changes
     React.useEffect(() => {
@@ -23,6 +24,7 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
             setWhatsappUrl('');
             setType('Cash'); // Reset to Cash
             setChequeDate(''); // Reset cheque date
+            setDescription(''); // Reset description
         }
     }, [isOpen, bill, initialAmount]);
 
@@ -66,12 +68,13 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                 amount: Number(amount),
                 payment_type: type,
                 cheque_date: type === 'Cheque' ? chequeDate : null,
+                description: type === 'Less' ? description : null,
                 status: "Pending",
                 timestamp: serverTimestamp(),
                 bill_date: bill.Date || null,
                 total_bill_amount: bill.Amount,
                 shop_id: bill.shop_id || bill.id || bill.ShopID || null,
-                points_awarded: ptsToAward || 0,
+                points_awarded: type === 'Less' ? 0 : ptsToAward,
                 ...(bill._isDeliveryConsole ? { is_delivery: true } : {})
             };
 
@@ -136,7 +139,8 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                     amount: Number(amount),
                     type: type,
                     isOverdue: Number(bill.Overdue) > 30,
-                    points_awarded: ptsToAward
+                    points_awarded: ptsToAward,
+                    is_delivery: !!bill._isDeliveryConsole
                 });
             }
 
@@ -263,13 +267,15 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                                                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                                                     className={`w-full bg-slate-950/50 border ${isDropdownOpen ? 'border-blue-500/50' : 'border-white/5'} hover:border-blue-600/40 rounded-3xl py-3 px-5 flex items-center justify-between text-slate-100 font-black transition-all text-xs tracking-widest shadow-inner cursor-pointer`}
                                                 >
-                                                    <span className="uppercase">{type === 'Cash' ? 'CASH CLEARANCE' : type === 'UPI' ? 'DIGITAL TRANSFER' : 'BANK CHEQUE'}</span>
+                                                    <span className="uppercase">{type === 'Cash' ? 'CASH CLEARANCE' : type === 'UPI' ? 'DIGITAL TRANSFER' : type === 'Cheque' ? 'BANK CHEQUE' : type === 'Credit' ? 'CREDIT ALIGNMENT' : 'RETURNS / LESS'}</span>
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-px h-5 bg-white/10"></div>
-                                                        <div className="text-blue-500 flex items-center justify-center p-1 bg-blue-500/10 rounded-lg">
+                                                        <div className={`flex items-center justify-center p-1 rounded-lg ${type === 'Credit' ? 'bg-fuchsia-500/10 text-fuchsia-500' : 'bg-blue-500/10 text-blue-500'}`}>
                                                             {type === 'Cash' && <Banknote size={14} />}
                                                             {type === 'UPI' && <CreditCard size={14} />}
                                                             {type === 'Cheque' && <Building2 size={14} />}
+                                                            {type === 'Less' && <X size={14} />}
+                                                            {type === 'Credit' && <Clock size={14} />}
                                                         </div>
                                                         <ChevronDown size={14} className={`text-slate-500 transition-transform duration-300 ${isDropdownOpen ? 'rotate-180 text-blue-400' : ''}`} />
                                                     </div>
@@ -324,6 +330,34 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                                                                         <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Physical Bank Draft</span>
                                                                     </div>
                                                                 </button>
+
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => React.startTransition(() => { setType('Credit'); setIsDropdownOpen(false); })}
+                                                                    className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Credit' ? 'bg-fuchsia-600/20 text-fuchsia-400 border border-fuchsia-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                >
+                                                                    <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Credit' ? 'bg-fuchsia-500/20 text-fuchsia-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                        <Clock size={16} />
+                                                                    </div>
+                                                                    <div className="flex flex-col">
+                                                                        <span className="font-black text-xs uppercase tracking-widest">Credit Alignment</span>
+                                                                        <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Time Extension</span>
+                                                                    </div>
+                                                                </button>
+
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => React.startTransition(() => { setType('Less'); setIsDropdownOpen(false); })}
+                                                                    className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Less' ? 'bg-red-600/20 text-red-400 border border-red-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                >
+                                                                    <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Less' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                        <X size={16} />
+                                                                    </div>
+                                                                    <div className="flex flex-col">
+                                                                        <span className="font-black text-xs uppercase tracking-widest">Returns / Less</span>
+                                                                        <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Deduction / Stock Return</span>
+                                                                    </div>
+                                                                </button>
                                                             </div>
                                                         </div>
                                                     </>
@@ -345,20 +379,60 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                                             </div>
                                         )}
 
-                                        {/* Amount Input */}
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-slate-500 uppercase ml-4 tracking-[0.2em]">Collection Amount</label>
-                                            <div className="relative group">
-                                                <span className="absolute left-6 top-1/2 -translate-y-1/2 text-blue-500 font-black text-xl drop-shadow-[0_0_8px_rgba(59,130,246,0.3)] pointer-events-none">₹</span>
-                                                <input
-                                                    type="number"
-                                                    value={amount}
-                                                    onChange={(e) => setAmount(e.target.value)}
-                                                    placeholder="0.00"
-                                                    className="w-full bg-slate-950/50 border border-white/5 focus:border-blue-600/40 rounded-3xl py-4 pl-14 pr-6 text-2xl sm:text-3xl font-black text-white placeholder-slate-600 outline-none transition-all shadow-inner tracking-tighter"
-                                                    autoFocus
-                                                />
+                                        {type === 'Less' && (
+                                            <div className="space-y-2 animate-scale-in">
+                                                <label className="text-[10px] font-black text-slate-500 uppercase ml-4 tracking-[0.2em]">Return Description</label>
+                                                <div className="relative group">
+                                                    <textarea
+                                                        value={description}
+                                                        onChange={(e) => setDescription(e.target.value)}
+                                                        placeholder="e.g. Malkist 10/- 2 PKT Returned"
+                                                        className="w-full bg-slate-950/50 border border-white/5 focus:border-red-600/40 rounded-3xl py-3 px-6 text-slate-100 font-bold outline-none transition-all text-xs tracking-wide shadow-inner placeholder:text-slate-600"
+                                                        rows={2}
+                                                    />
+                                                </div>
                                             </div>
+                                        )}
+
+                                        {/* Amount Input */}
+                                        <div className="space-y-2 mt-4">
+                                            {type === 'Credit' ? (
+                                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black text-slate-500 uppercase ml-4 tracking-[0.2em]">Credit Extended</label>
+                                                        <div className="relative group">
+                                                            <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
+                                                                <span className="text-slate-400 font-bold group-focus-within:text-fuchsia-400 transition-colors">₹</span>
+                                                            </div>
+                                                            <input
+                                                                type="number"
+                                                                value={amount}
+                                                                onChange={(e) => setAmount(e.target.value)}
+                                                                className="w-full bg-slate-950/50 border border-white/5 rounded-3xl py-4 pl-10 pr-5 text-fuchsia-400 font-black text-2xl tracking-tighter shadow-inner focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 focus:border-fuchsia-500/50 hover:border-fuchsia-600/40 transition-all text-right"
+                                                                placeholder="0.00"
+                                                                min="0"
+                                                                step="0.01"
+                                                            />
+                                                        </div>
+                                                        <p className="text-[10px] text-fuchsia-400/80 px-4 font-bold text-right pt-1 uppercase tracking-widest"><Clock size={10} className="inline mr-1" /> Marked as pending</p>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <label className="text-[10px] font-black text-slate-500 uppercase ml-4 tracking-[0.2em]">Collection Amount</label>
+                                                    <div className="relative group">
+                                                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-blue-500 font-black text-xl drop-shadow-[0_0_8px_rgba(59,130,246,0.3)] pointer-events-none">₹</span>
+                                                        <input
+                                                            type="number"
+                                                            value={amount}
+                                                            onChange={(e) => setAmount(e.target.value)}
+                                                            placeholder="0.00"
+                                                            className="w-full bg-slate-950/50 border border-white/5 focus:border-blue-600/40 rounded-3xl py-4 pl-14 pr-6 text-2xl sm:text-3xl font-black text-white placeholder-slate-600 outline-none transition-all shadow-inner tracking-tighter"
+                                                            autoFocus
+                                                        />
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
 
                                         {error && (

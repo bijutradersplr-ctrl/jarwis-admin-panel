@@ -191,7 +191,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0F172A] relative overflow-hidden">
+    <div className="min-h-screen bg-[#0F172A] relative overflow-x-hidden">
       {/* GLOBAL BACKUP BACKGROUND FOR ALL VIEWS */}
       <div className="fixed inset-0 bg-[#0F172A] -z-10"></div>
 

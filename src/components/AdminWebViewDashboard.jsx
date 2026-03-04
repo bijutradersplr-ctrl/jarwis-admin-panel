@@ -99,7 +99,11 @@ export default function AdminWebViewDashboard({
 }) {
 
     const pendingCount = useMemo(() =>
-        allPayments.filter(p => (p.status || '').toLowerCase() !== 'approved').length
+        allPayments.filter(p => (p.status || '').toLowerCase() !== 'approved' && !p.is_delivery).length
+        , [allPayments]);
+
+    const deliveryPendingCount = useMemo(() =>
+        allPayments.filter(p => (p.status || '').toLowerCase() === 'pending' && p.is_delivery).length
         , [allPayments]);
 
     // Calculate all unique active companies
@@ -123,6 +127,7 @@ export default function AdminWebViewDashboard({
     const sidebarLinks = [
         { label: 'Dashboard', icon: LayoutDashboard, view: 'DASHBOARD', menu: 'MAIN' },
         { label: 'Pending Approvals', icon: Clock, view: 'PENDING_APPROVALS', menu: 'MAIN', badge: pendingCount, color: 'orange' },
+        { label: 'Delivery Hub', icon: Smartphone, view: 'DELIVERY_HUB', menu: 'MAIN', badge: deliveryPendingCount, color: 'emerald' },
         { label: 'Data Upload', icon: UploadCloud, view: 'FRONT_OFFICE_UPLOAD', menu: 'MAIN' },
         { label: 'Sales History', icon: FileText, view: 'SUMMARY_LIST', menu: 'MAIN' },
         { label: 'Master Settings', icon: Settings, view: 'DASHBOARD', menu: 'MASTER' },
@@ -211,7 +216,11 @@ export default function AdminWebViewDashboard({
                                     <div className="flex-1 text-left">
                                         <h3 className={`text-sm font-black tracking-tight uppercase transition-colors duration-300 ${isActive ? 'text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-indigo-200' : 'text-slate-300 group-hover:text-white'}`}>{link.label}</h3>
                                         {link.badge > 0 && (
-                                            <span className="inline-flex mt-1.5 px-2.5 py-0.5 bg-orange-500/10 text-orange-400 text-[9px] font-black rounded-full border border-orange-500/30 shadow-[0_0_10px_rgba(249,115,22,0.2)] animate-pulse">
+                                            <span className={`inline-flex mt-1.5 px-2.5 py-0.5 text-[9px] font-black rounded-full border animate-pulse
+                                                ${link.color === 'emerald'
+                                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                                                    : 'bg-orange-500/10 text-orange-400 border-orange-500/30 shadow-[0_0_10px_rgba(249,115,22,0.2)]'
+                                                }`}>
                                                 {link.badge} ACTION{link.badge !== 1 ? 'S' : ''}
                                             </span>
                                         )}
@@ -468,7 +477,7 @@ export default function AdminWebViewDashboard({
                             </div>
 
                             {/* Market Exposure Wrapper */}
-                            <div className="bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 relative overflow-hidden group cursor-pointer hover:bg-slate-800/80 hover:border-white/10 active:scale-[0.99] transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg flex flex-col justify-center min-h-[140px]" onClick={() => { playSound('click'); setIsTotalOutstandingModalOpen(true); }}>
+                            <div className="bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 relative overflow-hidden group cursor-pointer hover:bg-slate-800/80 hover:border-white/10 active:scale-[0.99] transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg flex flex-col justify-center min-h-[140px]" onClick={() => { playSound('click'); setIsOutstandingModalOpen(true); }}>
                                 {/* Sleek left-border accent */}
                                 <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-orange-400 to-red-500 opacity-70 group-hover:opacity-100 transition-opacity" style={{ boxShadow: `0 0 12px rgba(249,115,22,0.5)` }}></div>
 

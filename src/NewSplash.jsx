@@ -14,17 +14,16 @@ const NewSplash = ({ onFinish }) => {
                     clearInterval(interval);
                     return 100;
                 }
-                // Much faster increments to reduce blocking LCP
-                return prev + 15;
+                return prev + 25; // Even faster
             });
-        }, 40);
+        }, 20);
 
         // Accelerated status text updates
         const statusTimers = [
-            setTimeout(() => setStatus("Handshaking Secure Protocols..."), 100),
-            setTimeout(() => setStatus("Decrypting User Session..."), 200),
-            setTimeout(() => setStatus("Synchronizing Cloud Database..."), 300),
-            setTimeout(() => setStatus("JARWIS PRO SYSTEM READY"), 400),
+            setTimeout(() => setStatus("Handshaking Secure Protocols..."), 50),
+            setTimeout(() => setStatus("Decrypting User Session..."), 100),
+            setTimeout(() => setStatus("Synchronizing Cloud Database..."), 150),
+            setTimeout(() => setStatus("JARWIS PRO SYSTEM READY"), 200),
         ];
 
         return () => {

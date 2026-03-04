@@ -3,67 +3,41 @@ import { ArrowLeft, UploadCloud, FileSpreadsheet, CheckCircle2, AlertCircle, Bui
 import { db } from "../firebase";
 import { collection, getDocs, query, where } from "firebase/firestore";
 
-export default function FrontOfficeUpload({ setView, playSound }) {
+export default function FrontOfficeUpload({ setView, playSound, adminName }) {
     const [loading, setLoading] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
 
     const [selectedCompany, setSelectedCompany] = useState('');
-    const [selectedSalesman, setSelectedSalesman] = useState('');
     const [selectedRoute, setSelectedRoute] = useState('');
     const [selectedFile, setSelectedFile] = useState(null);
 
     // State lists
-    const [salesmenList, setSalesmenList] = useState([]);
+    const [routeList, setRouteList] = useState([]);
 
     // Hardcoded companies as requested
     const COMPANIES = ['Britannia', 'Cadbury', 'Colgate', 'Godrej'];
 
-    // Fetch salesmen dynamically from Firestore users collection
+    // Fetch previously used routes for autocomplete
     useEffect(() => {
-        const fetchSalesmen = async () => {
+        const fetchRoutes = async () => {
             try {
-                // Assuming salesmen have role === 'salesman'
-                const q = query(collection(db, "users"), where("role", "==", "salesman"));
-                const snap = await getDocs(q);
-                const smData = [];
+                const snap = await getDocs(collection(db, "daily_deliveries"));
+                const rData = new Set();
                 snap.forEach(doc => {
                     const data = doc.data();
-                    smData.push({
-                        id: doc.id,
-                        name: data.salesman_name || data.name || doc.id
-                    });
+                    if (data.route_name) {
+                        rData.add(data.route_name.trim().toUpperCase());
+                    }
                 });
 
-                // fallback if the query returns empty or role isn't structured properly:
-                if (smData.length === 0) {
-                    const allUsers = await getDocs(collection(db, "users"));
-                    allUsers.forEach(doc => {
-                        const data = doc.data();
-                        if (data.role === 'salesman' || data.salesman_name) {
-                            smData.push({
-                                id: doc.id,
-                                name: data.salesman_name || data.name || doc.id
-                            });
-                        }
-                    });
-                }
-
-                // Deduplicate and sort
-                const uniqueDict = {};
-                smData.forEach(item => {
-                    const key = item.name.trim().toUpperCase();
-                    if (!uniqueDict[key]) uniqueDict[key] = item;
-                });
-
-                const sorted = Object.values(uniqueDict).sort((a, b) => a.name.localeCompare(b.name));
-                setSalesmenList(sorted);
+                setRouteList(Array.from(rData).sort());
             } catch (e) {
-                console.error("Error fetching salesmen:", e);
-                setErrorMessage("Failed to load salesmen list from database.");
+                console.error("Error fetching routes:", e);
+                // Non-critical, just won't have autocomplete
             }
         };
-        fetchSalesmen();
+        fetchRoutes();
     }, []);
 
     const handleFileChange = (e) => {
@@ -76,7 +50,7 @@ export default function FrontOfficeUpload({ setView, playSound }) {
     const handleUpload = async (e) => {
         e.preventDefault();
 
-        if (!selectedCompany || !selectedSalesman || !selectedRoute || !selectedFile) {
+        if (!selectedCompany || !selectedRoute || !selectedFile) {
             playSound('error');
             setErrorMessage("Please fill all fields and select a valid Excel file.");
             setSuccessMessage('');
@@ -91,8 +65,11 @@ export default function FrontOfficeUpload({ setView, playSound }) {
         const formData = new FormData();
         formData.append("file", selectedFile);
         formData.append("company_name", selectedCompany);
-        formData.append("salesman_id", selectedSalesman);
+        // The salesman system will automatically pull from excel or use AUTO
+        formData.append("salesman_id", "AUTO");
+        formData.append("salesman_name", "AUTO (Excel Data)");
         formData.append("route_name", selectedRoute);
+        formData.append("uploader_name", adminName || "Admin");
 
         try {
             const response = await fetch("http://127.0.0.1:5000/upload_loadsheets", {
@@ -163,35 +140,24 @@ export default function FrontOfficeUpload({ setView, playSound }) {
                             </select>
                         </div>
 
-                        {/* Salesman Dropdown */}
+                        {/* Route Name Autocomplete Input */}
                         <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                <UserCircle2 size={14} className="text-emerald-400" /> Salesman
-                            </label>
-                            <select
-                                value={selectedSalesman}
-                                onChange={(e) => { playSound('click'); setSelectedSalesman(e.target.value); }}
-                                className="w-full bg-slate-950/50 border border-white/10 text-white p-4 rounded-2xl outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all appearance-none cursor-pointer"
-                            >
-                                <option value="" disabled className="bg-slate-900 text-slate-500">Select Salesman...</option>
-                                {salesmenList.map(sm => (
-                                    <option key={sm.id} value={sm.id} className="bg-slate-900 text-white">{sm.name}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Route Name Input */}
-                        <div className="space-y-2 md:col-span-2">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                                 <MapIcon size={14} className="text-purple-400" /> Route Name
                             </label>
                             <input
                                 type="text"
+                                list="routesList"
                                 value={selectedRoute}
                                 onChange={(e) => setSelectedRoute(e.target.value)}
-                                placeholder="e.g. MONDAY_CITY, ROUTE_A"
+                                placeholder="Type new or select existing..."
                                 className="w-full bg-slate-950/50 border border-white/10 text-white p-4 rounded-2xl outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all uppercase placeholder:normal-case placeholder:text-slate-600"
                             />
+                            <datalist id="routesList">
+                                {routeList.map((r, i) => (
+                                    <option key={i} value={r} />
+                                ))}
+                            </datalist>
                         </div>
                     </div>
 
