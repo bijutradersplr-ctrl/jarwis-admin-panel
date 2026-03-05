@@ -779,6 +779,7 @@ export default function AdminDashboard({ adminName }) {
                                 approvingId={approvingId}
                                 playSound={playSound}
                                 salesmenData={salesmenData}
+                                settlements={settlements}
                             />}
                             {view === 'LEADERBOARD' && (
                                 <div className="space-y-6 animate-fade-in pb-20">
@@ -2620,7 +2621,7 @@ const PendingApprovalsView = ({ allPayments, pendingUpdates, handleMarkReflected
     );
 };
 
-const DeliveryHubView = ({ allPayments, dailyDeliveries, handleApprovePayment, handleRejectPayment, handleMarkReflected, setView, approvingId, playSound, salesmenData }) => {
+const DeliveryHubView = ({ allPayments, dailyDeliveries, handleApprovePayment, handleRejectPayment, handleMarkReflected, setView, approvingId, playSound, salesmenData, settlements }) => {
     const [selectedUser, setSelectedUser] = useState(null);
     const [selectedRun, setSelectedRun] = useState(null);
     const [selectedShop, setSelectedShop] = useState(null);
