@@ -41,10 +41,9 @@ service cloud.firestore {
        allow read, write: if request.auth != null;
     }
 
-    // 8. Daily Deliveries (New)
-    // Allows salesmen to see and lock their daily routes
-    match /daily_deliveries/{deliveryID} {
-       allow read, write: if request.auth != null;
+    // 8. Route Settlements
+    match /route_settlements/{settlementID} {
+       allow read, create: if request.auth != null;
     }
   }
 }

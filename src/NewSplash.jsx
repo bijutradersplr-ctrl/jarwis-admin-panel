@@ -47,7 +47,7 @@ const NewSplash = ({ onFinish }) => {
 
 
     return (
-        <div className={`fixed inset-0 z-[9999] bg-slate-950 flex flex-col items-center justify-center overflow-hidden transition-all duration-700 ${isExiting ? 'opacity-0 scale-110 filter blur-xl' : 'opacity-100 scale-100'}`}>
+        <div className={`fixed inset-0 z-[9999] bg-slate-950 flex flex-col items-center justify-center overflow-hidden transition-all duration-700 ${isExiting ? 'opacity-0 scale-105' : 'opacity-100 scale-100'}`}>
 
             {/* Dynamic Background Grid (Disabled on Mobile to fix 9s LCP) */}
             <div className="hidden sm:block absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f2e_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f2e_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none"></div>
@@ -61,7 +61,7 @@ const NewSplash = ({ onFinish }) => {
 
                     {/* Pulsing Core */}
                     <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-20 h-20 bg-cyan-500/10 rounded-xl rotate-45 backdrop-blur-md border border-cyan-400/30 flex items-center justify-center shadow-[0_0_30px_rgba(34,211,238,0.2)] animate-pulse">
+                        <div className="w-20 h-20 bg-cyan-500/10 rounded-xl rotate-45 border border-cyan-400/30 flex items-center justify-center shadow-[0_0_20px_rgba(34,211,238,0.1)] animate-pulse">
                             <Cpu size={40} className="text-cyan-400 -rotate-45" />
                         </div>
                     </div>

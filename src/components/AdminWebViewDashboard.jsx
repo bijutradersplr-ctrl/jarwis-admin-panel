@@ -118,6 +118,11 @@ export default function AdminWebViewDashboard({
         return Array.from(companies);
     }, [masterPlans]);
 
+    // OPTIMIZED: Memoize route stats to fix 4s INP
+    const routeStats = useMemo(() =>
+        getTodayRouteStats(salesmenData, masterPlans, allPayments),
+        [salesmenData, masterPlans, allPayments]);
+
     const companyConfigs = {
         'Cadbury': { color: 'from-purple-600 via-indigo-500 to-blue-500', glow: 'rgba(79,70,229,0.4)', text: 'text-purple-400' },
         'Britannia': { color: 'from-red-600 via-rose-500 to-orange-500', glow: 'rgba(225,29,72,0.4)', text: 'text-red-500' },
@@ -128,13 +133,8 @@ export default function AdminWebViewDashboard({
         { label: 'Dashboard', icon: LayoutDashboard, view: 'DASHBOARD', menu: 'MAIN' },
         { label: 'Pending Approvals', icon: Clock, view: 'PENDING_APPROVALS', menu: 'MAIN', badge: pendingCount, color: 'orange' },
         { label: 'Delivery Hub', icon: Smartphone, view: 'DELIVERY_HUB', menu: 'MAIN', badge: deliveryPendingCount, color: 'emerald' },
-        { label: 'Data Upload', icon: UploadCloud, view: 'FRONT_OFFICE_UPLOAD', menu: 'MAIN' },
-        { label: 'Sales History', icon: FileText, view: 'SUMMARY_LIST', menu: 'MAIN' },
-        { label: 'Master Settings', icon: Settings, view: 'DASHBOARD', menu: 'MASTER' },
-        { label: 'Leaderboard', icon: Trophy, view: 'LEADERBOARD', menu: 'MAIN' },
-        { label: 'Performance', icon: BarChart3, view: 'PERFORMANCE', menu: 'MAIN' },
-        { label: 'Route Explorer', icon: Compass, action: 'ROUTE_EXPLORER' },
-        { label: 'Reminders', icon: Bell, view: 'REMINDERS', menu: 'MAIN' },
+        { label: 'Reports', icon: TrendingUp, view: 'DASHBOARD', menu: 'REPORTS' },
+        { label: 'Master Settings', icon: Settings, view: 'DASHBOARD', menu: 'MASTER' }
     ];
 
     return (
@@ -160,9 +160,8 @@ export default function AdminWebViewDashboard({
                 <div className="p-8 pb-6 shrink-0 flex items-center justify-center relative z-10">
                     <div className="flex flex-col items-center">
                         <div className="flex items-center gap-3 mb-3 relative group cursor-default">
-                            <div className="absolute -inset-2 bg-gradient-to-r from-blue-600 via-indigo-500 to-blue-600 rounded-lg blur opacity-40 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-gradient-x"></div>
                             <div className="relative bg-slate-900 p-2 rounded-xl border border-white/10 shadow-2xl">
-                                <ShieldCheck size={24} className="text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
+                                <ShieldCheck size={24} className="text-blue-400" />
                             </div>
                             <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-200 to-slate-400 italic tracking-tighter uppercase drop-shadow-lg">
                                 JARWIS <span className="text-blue-500">PRO</span>
@@ -204,14 +203,14 @@ export default function AdminWebViewDashboard({
                                     }`}
                             >
                                 <div className={`p-4 relative z-10 flex items-center gap-4 rounded-[1.2rem] transition-colors duration-300
-                                    ${isActive ? 'bg-slate-900/90' : 'bg-slate-900/40 group-hover:bg-slate-800/60'}
+                                    ${isActive ? 'bg-slate-900/90' : 'bg-slate-800/40'}
                                 `}>
                                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300
                                         ${isActive
-                                            ? 'bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.5)] transform scale-110'
-                                            : 'bg-slate-800/80 border border-white/5 group-hover:bg-slate-700 group-hover:scale-110 group-hover:rotate-3 group-hover:shadow-lg'
+                                            ? 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]'
+                                            : 'bg-slate-800/80 border border-white/5'
                                         }`}>
-                                        <link.icon size={20} className={`transition-colors duration-300 ${isActive ? 'text-white drop-shadow-md' : 'text-slate-400 group-hover:text-blue-300'}`} />
+                                        <link.icon size={20} className={`transition-colors duration-300 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-blue-300'}`} />
                                     </div>
                                     <div className="flex-1 text-left">
                                         <h3 className={`text-sm font-black tracking-tight uppercase transition-colors duration-300 ${isActive ? 'text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-indigo-200' : 'text-slate-300 group-hover:text-white'}`}>{link.label}</h3>
@@ -235,23 +234,6 @@ export default function AdminWebViewDashboard({
                         );
                     })}
 
-                    <div className="pt-4 pb-2">
-                        <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
-                    </div>
-
-                    <button
-                        onClick={() => { playSound('click'); setIsDataManagerOpen(true); }}
-                        className="w-full relative overflow-hidden bg-white/5 p-[1px] rounded-[1.25rem] shadow-lg text-left group hover:bg-white/10 transition-all duration-300 active:scale-95"
-                    >
-                        <div className="p-4 relative z-10 flex items-center gap-4 rounded-[1.2rem] bg-slate-900/40 group-hover:bg-slate-800/60 transition-colors duration-300">
-                            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(99,102,241,0.4)] shrink-0 group-hover:scale-110 group-hover:-rotate-3 transition-transform duration-300">
-                                <Users size={20} className="text-white drop-shadow-md" />
-                            </div>
-                            <div>
-                                <h3 className="text-sm font-black text-slate-300 tracking-tight group-hover:text-white transition-colors uppercase">Data Manager</h3>
-                            </div>
-                        </div>
-                    </button>
                 </div>
 
                 <div className="p-6 mt-auto border-t border-white/5 shrink-0 bg-slate-900/50 backdrop-blur-md relative z-10">
@@ -309,8 +291,8 @@ export default function AdminWebViewDashboard({
                     {/* Header Area */}
                     <div className="bg-slate-900/40 backdrop-blur-3xl p-8 lg:p-12 rounded-[2.5rem] lg:rounded-[3.5rem] border border-white/10 hover:border-white/20 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.7)] ring-1 ring-inset ring-white/10 relative overflow-hidden backdrop-blur-3xl group transition-all duration-500 hover:border-blue-500/20">
                         {/* Dynamic Background Glows */}
-                        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 blur-[100px] -mr-32 -mt-32 rounded-full pointer-events-none group-hover:bg-blue-500/15 transition-colors duration-700"></div>
-                        <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-500/10 blur-[80px] -ml-20 -mb-30 rounded-full pointer-events-none group-hover:bg-indigo-500/15 transition-colors duration-700"></div>
+                        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 blur-[40px] -mr-32 -mt-32 rounded-full pointer-events-none group-hover:bg-blue-500/15 transition-colors duration-700"></div>
+                        <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-500/10 blur-[30px] -ml-20 -mb-30 rounded-full pointer-events-none group-hover:bg-indigo-500/15 transition-colors duration-700"></div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center relative z-10">
                             {/* Amount and Pending Info (Full width) */}
@@ -501,7 +483,7 @@ export default function AdminWebViewDashboard({
 
                             {/* --- NEW: TODAY'S TOTAL OUTSTANDING (Sleek Desktop Version) --- */}
                             {(() => {
-                                const { collectedValue, remainingValue, totalLiability } = getTodayRouteStats(salesmenData, masterPlans, allPayments);
+                                const { collectedValue, remainingValue, totalLiability } = routeStats;
                                 const percentage = totalLiability > 0 ? Math.min(Math.round((collectedValue / totalLiability) * 100), 100) : 0;
 
                                 return (

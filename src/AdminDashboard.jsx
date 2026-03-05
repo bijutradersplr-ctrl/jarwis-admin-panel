@@ -105,6 +105,7 @@ export default function AdminDashboard({ adminName }) {
     const [masterPlans, setMasterPlans] = useState({});
     const [salesmenTargets, setSalesmenTargets] = useState([]);
     const [dailyDeliveries, setDailyDeliveries] = useState([]);
+    const [settlements, setSettlements] = useState([]);
     const [isMuted, setIsMuted] = useState(localStorage.getItem('jarwis_admin_muted') === 'true');
 
     // Audio Helpers
@@ -329,6 +330,17 @@ export default function AdminDashboard({ adminName }) {
             console.error("Error fetching updates:", error);
         });
 
+        // 7. Listen to Route Settlements
+        const unsubSettlements = onSnapshot(collection(db, "route_settlements"), (snap) => {
+            const sett = [];
+            snap.forEach(doc => {
+                sett.push({ id: doc.id, ...doc.data() });
+            });
+            setSettlements(sett);
+        }, (error) => {
+            console.error("Error fetching settlements:", error);
+        });
+
         return () => {
             unsubOutstanding();
             unsubPayments();
@@ -336,29 +348,32 @@ export default function AdminDashboard({ adminName }) {
             unsubPlans();
             unsubUsers();
             unsubUpdates();
+            unsubSettlements();
         };
     }, []);
 
-    // --- AUTOMATED 3-FACTOR RANKING LOGIC ---
+    // --- OPTIMIZED 3-FACTOR RANKING LOGIC ---
     const topPerformers = React.useMemo(() => {
         const currentMonth = new Date().toISOString().slice(0, 7);
+
+        // 1. Single-pass pre-aggregation of payments by salesman for O(N+M) complexity
+        const paymentsBySalesman = {};
+        allPayments.forEach(p => {
+            try {
+                if (p.timestamp?.toDate().toISOString().slice(0, 7) !== currentMonth) return;
+                const sid = (p.salesman_id || p.salesman || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                if (!sid) return;
+                paymentsBySalesman[sid] = (paymentsBySalesman[sid] || 0) + Number(p.amount || 0);
+            } catch (e) { /* ignore invalid dates */ }
+        });
 
         // 1. Calculate base stats for each salesman
         const rawStats = salesmenTargets.map(t => {
             const sid = t.salesman_id;
             const target = Number(t.monthly_target || 0);
 
-            // Sales Achievement (All payments this month for real-time tracking)
-            const bankAchieved = allPayments
-                .filter(p => {
-                    const pSid = (p.salesman_id || '').trim().toUpperCase();
-                    const pSName = (p.salesman || '').trim().toUpperCase();
-                    if (pSid !== sid && pSName !== sid) return false;
-                    try {
-                        return p.timestamp?.toDate().toISOString().slice(0, 7) === currentMonth;
-                    } catch (e) { return false; }
-                })
-                .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+            // Achievement from aggregated map
+            const bankAchieved = paymentsBySalesman[sid] || 0;
 
             // Best-of-Two: Use current collections OR manually entered total (if for same month)
             const existingTotal = t.total_achieved || 0;
@@ -366,7 +381,7 @@ export default function AdminDashboard({ adminName }) {
             const achieved = isSameMonth ? Math.max(bankAchieved, existingTotal) : bankAchieved;
 
             // Collection % (How much of total outstanding they collected)
-            const smOutstanding = salesmenData.find(s => s.id.trim().toUpperCase() === sid);
+            const smOutstanding = salesmenData.find(s => s.id.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') === sid);
             const initialOutstanding = Number(smOutstanding?.total_outstanding || 0);
             const collectionRatio = initialOutstanding > 0 ? (achieved / initialOutstanding) : 0;
 
@@ -376,21 +391,12 @@ export default function AdminDashboard({ adminName }) {
             const overdueFactor = bills.length > 0 ? (1 - (highOverdueCount / bills.length)) : 1;
 
             // --- 3-FACTOR SCORE CALCULATION ---
-            // Factor 1: Sales Target Achievement (40% weight)
             const salesScore = target > 0 ? Math.min((achieved / target) * 100, 120) : 0;
-
-            // Factor 2: Collection Efficiency (40% weight)
             const collScore = Math.min(collectionRatio * 100, 100);
-
-            // Factor 3: Overdue Management (20% weight)
             const overdueScore = overdueFactor * 100;
 
-            // GUARD: If achievement is less than 1%, the score is 0.
             const achievementPct = target > 0 ? (achieved / target) : 0;
-
             let finalScore = (salesScore * 0.4) + (collScore * 0.4) + (overdueScore * 0.2);
-            // Relaxed: No longer forcing score to 0 for < 1% achievement to prevent blank leaderboard
-            // if (achievementPct < 0.01) finalScore = 0; 
 
             return {
                 id: t.id,
@@ -400,13 +406,12 @@ export default function AdminDashboard({ adminName }) {
                 achieved,
                 target,
                 percentage: Math.round(achievementPct * 100),
-                bankAchieved // Carry this for sync logic
+                bankAchieved
             };
         });
 
         // 2. Sort by score and assign ranks
         return rawStats
-            // Relaxed: Include everyone in the leaderboard, even if score is 0
             .sort((a, b) => b.score - a.score)
             .map((s, idx) => ({ ...s, rank: idx + 1 }));
     }, [salesmenTargets, allPayments, salesmenData]);
@@ -2118,6 +2123,24 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
                     </button>
 
                     <button
+                        onClick={() => { playSound('click'); setView('FRONT_OFFICE_UPLOAD'); }}
+                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-4 sm:p-5 rounded-3xl hover:border-orange-500/30 transition-all active:scale-95"
+                    >
+                        <div className="flex items-center justify-between relative z-10">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-400 border border-orange-500/20">
+                                    <UploadCloud size={20} />
+                                </div>
+                                <div className="text-left">
+                                    <h3 className="text-base font-black text-white uppercase">Data Upload</h3>
+                                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Import Delivery Loadsheets</p>
+                                </div>
+                            </div>
+                            <ArrowLeft size={16} className="rotate-180 text-slate-600 group-hover:text-white transition-colors" />
+                        </div>
+                    </button>
+
+                    <button
                         onClick={() => { playSound('click'); setIsDataManagerOpen(true); }}
                         className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-3.5 sm:p-4 rounded-2xl hover:border-violet-500/30 transition-all active:scale-95"
                     >
@@ -2188,24 +2211,6 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
                             <ArrowLeft size={16} className="rotate-180 text-slate-600 group-hover:text-white transition-colors" />
                         </div>
                     </button>
-
-                    <button
-                        onClick={() => { playSound('click'); setView('PENDING_APPROVALS'); }}
-                        className="w-full relative group overflow-hidden bg-slate-900/40 backdrop-blur-3xl border border-white/10 p-4 sm:p-5 rounded-3xl hover:border-orange-500/30 transition-all active:scale-95"
-                    >
-                        <div className="flex items-center justify-between relative z-10">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-400 border border-orange-500/20">
-                                    <Clock size={20} />
-                                </div>
-                                <div className="text-left">
-                                    <h3 className="text-base font-black text-white uppercase">Pending Approvals</h3>
-                                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Verify Payments</p>
-                                </div>
-                            </div>
-                            <ArrowLeft size={16} className="rotate-180 text-slate-600 group-hover:text-white transition-colors" />
-                        </div>
-                    </button>
                 </div>
             )}
 
@@ -2246,8 +2251,8 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
                                     <BarChart3 size={20} />
                                 </div>
                                 <div className="text-left">
-                                    <h3 className="text-base font-black text-white uppercase">Salesman Summary</h3>
-                                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Active Collections</p>
+                                    <h3 className="text-base font-black text-white uppercase">Sales History</h3>
+                                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Collection Logs</p>
                                 </div>
                             </div>
                             <ArrowLeft size={16} className="rotate-180 text-slate-600 group-hover:text-white transition-colors" />
@@ -2950,27 +2955,55 @@ const DeliveryHubView = ({ allPayments, dailyDeliveries, handleApprovePayment, h
                                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{routeName}</span>
                             </div>
                             <div className="grid gap-2">
-                                {Object.entries(shops).map(([shopName, items]) => (
-                                    <div key={shopName} className="bg-slate-900/40 backdrop-blur-3xl p-5 rounded-3xl border border-white/5 flex justify-between items-center group">
-                                        <div className="flex items-center gap-5">
-                                            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-400 border border-rose-500/20 group-hover:scale-110 transition-transform">
-                                                <PackageX size={22} />
+                                {Object.entries(shops).map(([shopName, items]) => {
+                                    const totalBillAmt = items.reduce((sum, it) => sum + Number(it.total_bill_amount || 0), 0);
+                                    const totalLessAmt = items.reduce((sum, it) => sum + Number(it.amount || 0), 0);
+                                    const receivedPayments = deliveryPayments.filter(p =>
+                                        (p.party || '').trim().toUpperCase() === shopName.toUpperCase() &&
+                                        p.payment_type !== 'Less'
+                                    );
+                                    const totalReceivedAmt = receivedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+                                    const finalBalance = totalBillAmt - totalLessAmt - totalReceivedAmt;
+
+                                    return (
+                                        <div key={shopName} className="bg-slate-900/60 backdrop-blur-3xl p-5 rounded-[2.5rem] border border-white/5 flex flex-col gap-4 group hover:border-rose-500/20 transition-all">
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-400 border border-rose-500/20 group-hover:scale-110 transition-transform">
+                                                        <PackageX size={22} />
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-slate-100 font-black text-lg tracking-tight uppercase group-hover:text-rose-400 transition-colors leading-tight">{shopName}</p>
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic mt-1 bg-white/5 inline-block px-2 py-0.5 rounded-lg border border-white/5">
+                                                            "{items[0].description || "No description"}"
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className={`text-2xl font-black tracking-tighter italic ${finalBalance > 0 ? 'text-amber-400 shadow-amber-500/20' : 'text-emerald-400'} drop-shadow-lg`}>
+                                                        ₹{finalBalance.toLocaleString('en-IN')}
+                                                    </p>
+                                                    <p className="text-[8px] text-slate-500 font-black uppercase tracking-[0.2em] mt-1">Final Balance</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-slate-100 font-black text-lg tracking-tight uppercase group-hover:text-rose-400 transition-colors leading-tight">{shopName}</p>
-                                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest italic mt-1 truncate max-w-[200px]">
-                                                    {items[0].description || "No description"}
-                                                </p>
+
+                                            <div className="grid grid-cols-3 gap-2 pt-4 border-t border-white/5">
+                                                <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
+                                                    <p className="text-[7px] text-slate-500 font-black uppercase tracking-widest mb-1">Total Bill</p>
+                                                    <p className="text-xs font-black text-slate-300">₹{totalBillAmt.toLocaleString('en-IN')}</p>
+                                                </div>
+                                                <div className="bg-blue-500/5 p-3 rounded-2xl border border-blue-500/10">
+                                                    <p className="text-[7px] text-blue-500/60 font-black uppercase tracking-widest mb-1">Received</p>
+                                                    <p className="text-xs font-black text-blue-400">₹{totalReceivedAmt.toLocaleString('en-IN')}</p>
+                                                </div>
+                                                <div className="bg-rose-500/5 p-3 rounded-2xl border border-rose-500/10">
+                                                    <p className="text-[7px] text-rose-500/60 font-black uppercase tracking-widest mb-1">Returns</p>
+                                                    <p className="text-xs font-black text-rose-400">-₹{totalLessAmt.toLocaleString('en-IN')}</p>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className="text-right">
-                                            <p className="text-xl font-black text-white tracking-tighter italic">
-                                                ₹{items.reduce((sum, it) => sum + (Number(it.total_bill_amount || 0) - Number(it.amount || 0)), 0).toLocaleString('en-IN')}
-                                            </p>
-                                            <p className="text-[8px] text-rose-500/60 font-black uppercase tracking-widest mt-1">Bill balance</p>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     )) : (
@@ -3086,6 +3119,27 @@ const DeliveryHubView = ({ allPayments, dailyDeliveries, handleApprovePayment, h
                                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{collectedCount} OF {totalBills} BILLS COLLECTED</p>
                                         <p className="text-[10px] font-black text-blue-400 italic">{Math.round(progressPct)}%</p>
                                     </div>
+
+                                    {/* Settlement Indicator */}
+                                    {(() => {
+                                        const routeSettlement = settlements.find(s => s.route_id === run.id);
+                                        if (!routeSettlement) return null;
+                                        const isTally = Math.abs(routeSettlement.difference || 0) < 1;
+                                        return (
+                                            <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`w-2 h-2 rounded-full ${isTally ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
+                                                    <span className={`text-[10px] font-black uppercase tracking-widest ${isTally ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                        {isTally ? 'Settlement Matched' : 'Discrepancy Found'}
+                                                    </span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-[8px] text-slate-500 font-black uppercase tracking-[0.2em]">Recv By: {routeSettlement.recipient}</p>
+                                                    <p className="text-[10px] font-black text-white uppercase mt-0.5">Dif: {routeSettlement.difference > 0 ? '+' : ''}₹{routeSettlement.difference.toLocaleString('en-IN')}</p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                 </button>
                             );
                         })

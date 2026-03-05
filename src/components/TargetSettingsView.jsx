@@ -307,7 +307,9 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
                     const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
                     const mapping = {
-                        'ABHIRAM A': 'ABHIRAM NEW'
+                        'ABHIRAM A': 'ABHIRAM A', // User clarified: remains ABHIRAM A for Britannia
+                        'ANOOP KRISHNA S': 'SUPAL SUDHAN',
+                        'MIDHUN P SANTHOSH': 'SUPAL SUDHAN'
                     };
 
                     let successCount = 0;
@@ -333,6 +335,14 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
                             reportType = 'COLGATE';
                             break;
                         }
+
+                        // Britannia format check (Col 5 header is "Sales Person Name" in ReportDailySls)
+                        const col5 = String(row[5] || '').trim().toLowerCase();
+                        const col11 = String(row[11] || '').trim().toLowerCase();
+                        if (col5.includes('sales person name') || col11.includes('net amount')) {
+                            reportType = 'BRITANNIA';
+                            break;
+                        }
                     }
 
                     if (reportType === 'UNKNOWN') {
@@ -340,6 +350,9 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
                     }
 
                     console.log(`[Upload] Detected Report Type: ${reportType}`);
+
+                    // Create an aggregation object to handle many-to-one mappings (e.g. multiple salesmen to Supal)
+                    const finalAggregated = {};
 
                     // 2. Parse Based on Report Type
                     for (let i = 0; i < json.length; i++) {
@@ -378,6 +391,15 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
                                 // parts[0] is code, parts[1] is name, parts[2] is Total
                                 salesmanCol = parts[1].trim();
                             }
+                        } else if (reportType === 'BRITANNIA') {
+                            // Britannia: Header at row 0, data starts from row 1
+                            if (i < 1 || !row[5] || !row[11]) continue;
+
+                            salesmanCol = String(row[5] || '').trim();
+                            achievementCol = row[11]; // Net Amount
+
+                            // Exclude header row if somehow re-processed
+                            if (salesmanCol.toLowerCase().includes('sales person name')) continue;
                         }
 
                         let excelName = salesmanCol.toUpperCase();
@@ -386,11 +408,32 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
                         let achievementValue = Number(achievementCol);
                         if (isNaN(achievementValue)) achievementValue = 0;
 
-                        // Find target matching name
+                        // User clarified mapping for Abhiram A depends on report source
+                        // For Britannia (which we just detected), keep as ABHIRAM A
+                        // Note: mapping object already handles this but we can force it here if repoType specific
+                        if (reportType === 'BRITANNIA' && excelName === 'ABHIRAM A') {
+                            targetName = 'ABHIRAM A';
+                        }
+
+                        // Accumulate totals by mapped name
+                        if (!finalAggregated[targetName]) {
+                            finalAggregated[targetName] = {
+                                amount: 0,
+                                originalNames: new Set()
+                            };
+                        }
+                        finalAggregated[targetName].amount += achievementValue;
+                        finalAggregated[targetName].originalNames.add(excelName);
+                    }
+
+                    // 3. Batch Update Firestore with aggregated totals
+                    const aggregatedNames = Object.keys(finalAggregated);
+                    for (const targetName of aggregatedNames) {
+                        const achievementValue = Math.round(finalAggregated[targetName].amount);
                         const targetUser = targets.find(t => t.name.toUpperCase() === targetName);
 
                         if (targetUser) {
-                            console.log(`[Sync] Found match for ${targetName}. Previous: ${targetUser.total_achieved}, New: ${achievementValue}`);
+                            console.log(`[Sync] Updating ${targetName}: Rs ${achievementValue}`);
                             const userRef = doc(db, "users", targetUser.id);
                             batchPromises.push(
                                 updateDoc(userRef, {
@@ -400,7 +443,7 @@ export default function TargetSettingsView({ salesmenData, onBack, allPayments =
                             );
                             successCount++;
                         } else {
-                            console.log(`[Warning] No matching user found for mapped name: '${targetName}' (Original: '${excelName}')`);
+                            console.log(`[Warning] No matching user found for: '${targetName}'`);
                         }
                     }
 

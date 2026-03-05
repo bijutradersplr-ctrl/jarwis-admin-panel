@@ -66,33 +66,31 @@ function App() {
     const auth = getAuth();
     console.log("🏁 [App] Initializing Auth Lifecycle");
 
-    // FALLBACK TIMEOUT: If auth doesn't resolve in 10s, force clear loading
+    // FALLBACK TIMEOUT: If auth doesn't resolve in 7s, force clear loading
     const timeout = setTimeout(() => {
       if (loading) {
         console.warn("⚠️ [Auth] Connection Timeout reached. Forcing UI reveal.");
         setAuthResolved(true); // Set authResolved even on timeout
       }
-    }, 10000);
+    }, 7000);
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log("🔄 [Auth State Change] User:", firebaseUser ? firebaseUser.email : "None");
 
       if (firebaseUser) {
         clearTimeout(timeout);
-        console.log("📌 [Auth UID]:", firebaseUser.uid);
+        // Add minimal state checks to prevent redundant re-renders
+        const newUID = firebaseUser.uid;
         let currentRole = 'salesman';
 
         try {
-          console.log("🔍 [Firestore] Fetching role for UID:", firebaseUser.uid);
-          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-
+          // If we already have this UID and a role, we can skip fetching role if we want, 
+          // but role might change in DB. However, for "blinking" prevention, 
+          // we just need to ensure we don't trigger state updates if the result is the same.
+          const userDoc = await getDoc(doc(db, "users", newUID));
           if (userDoc.exists()) {
             currentRole = userDoc.data().role || 'salesman';
-            console.log("✅ [Firestore] Role Found:", currentRole);
-          } else {
-            console.warn("⚠️ [Firestore] No user document found for UID.");
           }
-
           localStorage.setItem('jarwis_role', currentRole);
         } catch (e) {
           console.error("❌ [Firestore] Role fetch error:", e);
@@ -103,10 +101,12 @@ function App() {
           ? savedUser.trim().toUpperCase().replace(/\s+/g, ' ')
           : (currentRole === 'admin' ? "ADMIN USER" : "UNKNOWN");
 
-        setUser(displayName);
-        setAuthUID(firebaseUser.uid);
-        setRole(currentRole);
-        console.log("🚀 [App State] Rendering for Role:", currentRole);
+        // ONLY update state if something actually changed
+        setAuthUID(prev => prev !== newUID ? newUID : prev);
+        setRole(prev => prev !== currentRole ? currentRole : prev);
+        setUser(prev => prev !== displayName ? displayName : prev);
+
+        console.log("🚀 [App State] Auth Processed for UID:", newUID);
       } else {
         setUser(null);
         setAuthUID(null);

@@ -1,13 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { db as dexieDB } from './db';
-import { X, Check, Banknote, CreditCard, Building2, Loader2, Smartphone, ChevronDown, Clock } from 'lucide-react';
+import { X, Check, Banknote, CreditCard, Building2, Loader2, Smartphone, ChevronDown, Clock, Receipt, UserPlus, Coins } from 'lucide-react';
 
 export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID, onPaymentSuccess, initialAmount }) {
     const [amount, setAmount] = useState(initialAmount || '');
     const [type, setType] = useState('Cash');
+    const isExpenseMode = bill?.Party === "ROUTE EXPENSE";
+
+    // Set default type if in expense mode
+    useEffect(() => {
+        if (isExpenseMode) {
+            setType('Expense');
+        }
+    }, [isExpenseMode]);
     const [chequeDate, setChequeDate] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -28,7 +36,6 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
         }
     }, [isOpen, bill, initialAmount]);
 
-    if (!isOpen || !bill) return null;
 
 
 
@@ -74,7 +81,7 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                 bill_date: bill.Date || null,
                 total_bill_amount: bill.Amount,
                 shop_id: bill.shop_id || bill.id || bill.ShopID || null,
-                points_awarded: type === 'Less' ? 0 : ptsToAward,
+                points_awarded: (type === 'Less' || type === 'Expense' || type === 'Advance' || type === 'Salary') ? 0 : ptsToAward,
                 ...(bill._isDeliveryConsole ? { is_delivery: true } : {})
             };
 
@@ -105,15 +112,19 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                 const balanceAmt = totalAmt - totalPaidSoFar;
                 const today = new Date().toLocaleDateString('en-IN');
 
-                const message = `*BIJU TRADERS - PAYMENT RECEIPT*\n\n` +
+                const isExpense = type === 'Expense' || type === 'Advance' || type === 'Salary';
+                const header = isExpense ? `*BIJU TRADERS - VOUCHER*` : `*BIJU TRADERS - PAYMENT RECEIPT*`;
+
+                const message = `${header}\n\n` +
                     `👤 *Party:* ${bill.Party}\n` +
-                    `💰 *Total Outstanding:* ₹${totalAmt.toLocaleString('en-IN')}\n` +
-                    (prevPaidAmt > 0 ? `⏮️ *Previously Paid:* ₹${prevPaidAmt.toLocaleString('en-IN')}\n` : '') +
-                    `✅ *Current Payment:* ₹${currentPaidAmt.toLocaleString('en-IN')}\n` +
-                    `⚖️ *Balance Amount:* ₹${balanceAmt.toLocaleString('en-IN')}\n` +
-                    `👤 *Salesman:* ${salesmanID.toUpperCase()}\n` +
+                    (!isExpense ? `💰 *Total Outstanding:* ₹${totalAmt.toLocaleString('en-IN')}\n` : '') +
+                    (!isExpense && prevPaidAmt > 0 ? `⏮️ *Previously Paid:* ₹${prevPaidAmt.toLocaleString('en-IN')}\n` : '') +
+                    `✅ *${isExpense ? 'Expense Amount' : 'Current Payment'}:* ₹${currentPaidAmt.toLocaleString('en-IN')}\n` +
+                    (!isExpense ? `⚖️ *Balance Amount:* ₹${balanceAmt.toLocaleString('en-IN')}\n` : '') +
+                    `👤 *${isExpense ? 'Spent By' : 'Salesman'}:* ${salesmanID.toUpperCase()}\n` +
                     `💳 *Mode:* ${type}\n` +
                     (type === 'Cheque' && chequeDate ? `🏦 *Cheque Date:* ${new Date(chequeDate).toLocaleDateString('en-IN')}\n` : '') +
+                    (description ? `📝 *Note:* ${description}\n` : '') +
                     `📅 *Date:* ${today}\n\n` +
                     `_Status: Pending Office Verification._`;
 
@@ -153,6 +164,53 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
         }
     };
 
+    // --- MEMOIZED UI COMPONENTS TO PREVENT INPUT LAG ---
+    const modalHeader = useMemo(() => (
+        <div className="flex justify-between items-start mb-4">
+            <div>
+                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                    {bill?.Party === "ROUTE EXPENSE" ? 'Voucher Entry' : 'Receive Funds'}
+                </h2>
+                <p className="text-[8px] sm:text-[10px] text-slate-500 mt-1 uppercase tracking-[0.2em] sm:tracking-[0.3em] font-black opacity-80">{bill?.Party}</p>
+            </div>
+            <button
+                type="button"
+                onClick={onClose}
+                className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-slate-400 hover:text-white transition-all active:scale-95 border border-white/5"
+            >
+                <X size={20} />
+            </button>
+        </div>
+    ), [bill?.Party, onClose]);
+
+    const billInfoCard = useMemo(() => (
+        <div className="bg-slate-950/50 backdrop-blur-2xl rounded-2xl sm:rounded-3xl p-4 mb-4 border border-white/5 flex justify-between items-center shadow-inner relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-blue-600"></div>
+            <div>
+                <p className="text-[8px] sm:text-[9px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1 opacity-60">Total Outstanding</p>
+                <p className="text-xl sm:text-2xl font-black text-slate-50 tracking-tighter">₹{Number(bill?.Amount || 0).toLocaleString('en-IN')}</p>
+            </div>
+            <div className="text-right">
+                <p className="text-[8px] sm:text-[9px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1 opacity-60">Aging</p>
+                <div className="flex items-center justify-end gap-2">
+                    <span className={`text-xl sm:text-2xl font-black tracking-tighter ${Number(bill?.Overdue || 0) > 30 ? 'text-red-500' : 'text-amber-500'}`}>
+                        {bill?.Overdue || 0}
+                    </span>
+                    <span className="text-[8px] sm:text-[10px] font-black text-slate-600">Days</span>
+                </div>
+            </div>
+        </div>
+    ), [bill?.Amount, bill?.Overdue]);
+
+    const pointsAwarded = useMemo(() => {
+        const basePts = Math.floor(Number(amount) / 1000);
+        const isOverdue = Number(bill?.Overdue || 0) > 0;
+        return isOverdue ? Math.floor(basePts * 1.2) : basePts;
+    }, [amount, bill?.Overdue]);
+
+
+    if (!isOpen || !bill) return null;
+
     return (
         createPortal(
             <div className="relative z-50" aria-labelledby="modal-title" role="dialog" aria-modal="true">
@@ -186,23 +244,14 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                                     <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-6">Transaction ID: #{Date.now().toString().slice(-6)}</p>
 
                                     {/* POINTS ANIMATION POP */}
-                                    {(() => {
-                                        const basePts = Math.floor(Number(amount) / 1000);
-                                        const isOverdue = Number(bill?.Overdue || 0) > 0;
-                                        const pts = isOverdue ? Math.floor(basePts * 1.2) : basePts;
-
-                                        if (pts > 0) {
-                                            return (
-                                                <div className="mb-10 text-center animate-bounce-in relative z-20">
-                                                    <div className="absolute inset-0 bg-yellow-500/20 blur-xl top-1/2 -translate-y-1/2 rounded-full h-10"></div>
-                                                    <span className="text-4xl font-black text-yellow-400 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)] flex items-center justify-center gap-2">
-                                                        +{pts} <span className="text-[14px] uppercase tracking-widest text-yellow-500/80">Points</span>
-                                                    </span>
-                                                </div>
-                                            );
-                                        }
-                                        return null;
-                                    })()}
+                                    {pointsAwarded > 0 && (
+                                        <div className="mb-10 text-center animate-bounce-in relative z-20">
+                                            <div className="absolute inset-0 bg-yellow-500/20 blur-xl top-1/2 -translate-y-1/2 rounded-full h-10"></div>
+                                            <span className="text-4xl font-black text-yellow-400 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)] flex items-center justify-center gap-2">
+                                                +{pointsAwarded} <span className="text-[14px] uppercase tracking-widest text-yellow-500/80">Points</span>
+                                            </span>
+                                        </div>
+                                    )}
 
                                     <div className="space-y-3 w-full">
                                         {whatsappUrl && (
@@ -226,36 +275,10 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                             ) : (
                                 <>
                                     {/* Header */}
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div>
-                                            <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Receive Funds</h2>
-                                            <p className="text-[8px] sm:text-[10px] text-slate-500 mt-1 uppercase tracking-[0.2em] sm:tracking-[0.3em] font-black opacity-80">{bill.Party}</p>
-                                        </div>
-                                        <button
-                                            onClick={onClose}
-                                            className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-slate-400 hover:text-white transition-all active:scale-95 border border-white/5"
-                                        >
-                                            <X size={20} />
-                                        </button>
-                                    </div>
+                                    {modalHeader}
 
                                     {/* Bill Info Card */}
-                                    <div className="bg-slate-950/50 backdrop-blur-2xl rounded-2xl sm:rounded-3xl p-4 mb-4 border border-white/5 flex justify-between items-center shadow-inner relative overflow-hidden">
-                                        <div className="absolute top-0 left-0 w-1 h-full bg-blue-600"></div>
-                                        <div>
-                                            <p className="text-[8px] sm:text-[9px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1 opacity-60">Total Outstanding</p>
-                                            <p className="text-xl sm:text-2xl font-black text-slate-50 tracking-tighter">₹{Number(bill.Amount).toLocaleString('en-IN')}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-[8px] sm:text-[9px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1 opacity-60">Aging</p>
-                                            <div className="flex items-center justify-end gap-2">
-                                                <span className={`text-xl sm:text-2xl font-black tracking-tighter ${Number(bill.Overdue) > 30 ? 'text-red-500' : 'text-amber-500'}`}>
-                                                    {bill.Overdue}
-                                                </span>
-                                                <span className="text-[8px] sm:text-[10px] font-black text-slate-600">Days</span>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    {billInfoCard}
 
                                     <form onSubmit={handleSubmit} className="space-y-3">
 
@@ -267,7 +290,16 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                                                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                                                     className={`w-full bg-slate-950/50 border ${isDropdownOpen ? 'border-blue-500/50' : 'border-white/5'} hover:border-blue-600/40 rounded-3xl py-3 px-5 flex items-center justify-between text-slate-100 font-black transition-all text-xs tracking-widest shadow-inner cursor-pointer`}
                                                 >
-                                                    <span className="uppercase">{type === 'Cash' ? 'CASH CLEARANCE' : type === 'UPI' ? 'DIGITAL TRANSFER' : type === 'Cheque' ? 'BANK CHEQUE' : type === 'Credit' ? 'CREDIT ALIGNMENT' : 'RETURNS / LESS'}</span>
+                                                    <span className="uppercase">
+                                                        {type === 'Cash' ? 'CASH CLEARANCE' :
+                                                            type === 'UPI' ? 'DIGITAL TRANSFER' :
+                                                                type === 'Cheque' ? 'BANK CHEQUE' :
+                                                                    type === 'Credit' ? 'CREDIT ALIGNMENT' :
+                                                                        type === 'Expense' ? 'ROUTE EXPENSE' :
+                                                                            type === 'Advance' ? 'ADVANCE PAY' :
+                                                                                type === 'Salary' ? 'SALARY DISPATCH' :
+                                                                                    'RETURNS / LESS'}
+                                                    </span>
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-px h-5 bg-white/10"></div>
                                                         <div className={`flex items-center justify-center p-1 rounded-lg ${type === 'Credit' ? 'bg-fuchsia-500/10 text-fuchsia-500' : 'bg-blue-500/10 text-blue-500'}`}>
@@ -275,6 +307,9 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                                                             {type === 'UPI' && <CreditCard size={14} />}
                                                             {type === 'Cheque' && <Building2 size={14} />}
                                                             {type === 'Less' && <X size={14} />}
+                                                            {type === 'Expense' && <Receipt size={14} />}
+                                                            {type === 'Advance' && <UserPlus size={14} />}
+                                                            {type === 'Salary' && <Coins size={14} />}
                                                             {type === 'Credit' && <Clock size={14} />}
                                                         </div>
                                                         <ChevronDown size={14} className={`text-slate-500 transition-transform duration-300 ${isDropdownOpen ? 'rotate-180 text-blue-400' : ''}`} />
@@ -289,75 +324,123 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                                                             <div className="flex flex-col gap-1 relative">
                                                                 <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-[40px] pointer-events-none"></div>
 
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => React.startTransition(() => { setType('Cash'); setIsDropdownOpen(false); })}
-                                                                    className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Cash' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
-                                                                >
-                                                                    <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Cash' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-400'}`}>
-                                                                        <Banknote size={16} />
-                                                                    </div>
-                                                                    <div className="flex flex-col">
-                                                                        <span className="font-black text-xs uppercase tracking-widest">Cash Clearance</span>
-                                                                        <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Physical Currency</span>
-                                                                    </div>
-                                                                </button>
+                                                                {isExpenseMode ? (
+                                                                    <>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => React.startTransition(() => { setType('Expense'); setIsDropdownOpen(false); })}
+                                                                            className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Expense' ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                        >
+                                                                            <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Expense' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                                <Receipt size={16} />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-black text-xs uppercase tracking-widest">Route Expense</span>
+                                                                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Fuel, Food, Maintenance</span>
+                                                                            </div>
+                                                                        </button>
 
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => React.startTransition(() => { setType('UPI'); setIsDropdownOpen(false); })}
-                                                                    className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'UPI' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
-                                                                >
-                                                                    <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'UPI' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800 text-slate-400'}`}>
-                                                                        <CreditCard size={16} />
-                                                                    </div>
-                                                                    <div className="flex flex-col">
-                                                                        <span className="font-black text-xs uppercase tracking-widest">Digital Transfer</span>
-                                                                        <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">UPI / NetBanking</span>
-                                                                    </div>
-                                                                </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => React.startTransition(() => { setType('Advance'); setIsDropdownOpen(false); })}
+                                                                            className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Advance' ? 'bg-orange-600/20 text-orange-400 border border-orange-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                        >
+                                                                            <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Advance' ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                                <UserPlus size={16} />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-black text-xs uppercase tracking-widest">Advance</span>
+                                                                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Staff Advance Payment</span>
+                                                                            </div>
+                                                                        </button>
 
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => React.startTransition(() => { setType('Cheque'); setIsDropdownOpen(false); })}
-                                                                    className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Cheque' ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
-                                                                >
-                                                                    <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Cheque' ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-800 text-slate-400'}`}>
-                                                                        <Building2 size={16} />
-                                                                    </div>
-                                                                    <div className="flex flex-col">
-                                                                        <span className="font-black text-xs uppercase tracking-widest">Bank Cheque</span>
-                                                                        <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Physical Bank Draft</span>
-                                                                    </div>
-                                                                </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => React.startTransition(() => { setType('Salary'); setIsDropdownOpen(false); })}
+                                                                            className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Salary' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                        >
+                                                                            <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Salary' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                                <Coins size={16} />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-black text-xs uppercase tracking-widest">Salary</span>
+                                                                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Daily Wages / Salary</span>
+                                                                            </div>
+                                                                        </button>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => React.startTransition(() => { setType('Cash'); setIsDropdownOpen(false); })}
+                                                                            className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Cash' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                        >
+                                                                            <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Cash' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                                <Banknote size={16} />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-black text-xs uppercase tracking-widest">Cash Clearance</span>
+                                                                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Physical Currency</span>
+                                                                            </div>
+                                                                        </button>
 
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => React.startTransition(() => { setType('Credit'); setIsDropdownOpen(false); })}
-                                                                    className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Credit' ? 'bg-fuchsia-600/20 text-fuchsia-400 border border-fuchsia-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
-                                                                >
-                                                                    <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Credit' ? 'bg-fuchsia-500/20 text-fuchsia-400' : 'bg-slate-800 text-slate-400'}`}>
-                                                                        <Clock size={16} />
-                                                                    </div>
-                                                                    <div className="flex flex-col">
-                                                                        <span className="font-black text-xs uppercase tracking-widest">Credit Alignment</span>
-                                                                        <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Time Extension</span>
-                                                                    </div>
-                                                                </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => React.startTransition(() => { setType('UPI'); setIsDropdownOpen(false); })}
+                                                                            className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'UPI' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                        >
+                                                                            <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'UPI' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                                <CreditCard size={16} />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-black text-xs uppercase tracking-widest">Digital Transfer</span>
+                                                                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">UPI / NetBanking</span>
+                                                                            </div>
+                                                                        </button>
 
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => React.startTransition(() => { setType('Less'); setIsDropdownOpen(false); })}
-                                                                    className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Less' ? 'bg-red-600/20 text-red-400 border border-red-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
-                                                                >
-                                                                    <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Less' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-400'}`}>
-                                                                        <X size={16} />
-                                                                    </div>
-                                                                    <div className="flex flex-col">
-                                                                        <span className="font-black text-xs uppercase tracking-widest">Returns / Less</span>
-                                                                        <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Deduction / Stock Return</span>
-                                                                    </div>
-                                                                </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => React.startTransition(() => { setType('Cheque'); setIsDropdownOpen(false); })}
+                                                                            className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Cheque' ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                        >
+                                                                            <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Cheque' ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                                <Building2 size={16} />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-black text-xs uppercase tracking-widest">Bank Cheque</span>
+                                                                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Physical Bank Draft</span>
+                                                                            </div>
+                                                                        </button>
+
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => React.startTransition(() => { setType('Credit'); setIsDropdownOpen(false); })}
+                                                                            className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Credit' ? 'bg-fuchsia-600/20 text-fuchsia-400 border border-fuchsia-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                        >
+                                                                            <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Credit' ? 'bg-fuchsia-500/20 text-fuchsia-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                                <Clock size={16} />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-black text-xs uppercase tracking-widest">Credit Alignment</span>
+                                                                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Time Extension</span>
+                                                                            </div>
+                                                                        </button>
+
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => React.startTransition(() => { setType('Less'); setIsDropdownOpen(false); })}
+                                                                            className={`flex items-center gap-3 w-full text-left p-2.5 rounded-xl transition-all relative z-10 ${type === 'Less' ? 'bg-red-600/20 text-red-400 border border-red-500/30' : 'text-slate-300 hover:bg-white/5 border border-transparent hover:text-white'}`}
+                                                                        >
+                                                                            <div className={`p-1.5 rounded-lg flex items-center justify-center ${type === 'Less' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-400'}`}>
+                                                                                <X size={16} />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-black text-xs uppercase tracking-widest">Returns / Less</span>
+                                                                                <span className="text-[8px] font-bold uppercase tracking-[0.2em] opacity-60">Deduction / Stock Return</span>
+                                                                            </div>
+                                                                        </button>
+                                                                    </>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </>
@@ -379,16 +462,18 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                                             </div>
                                         )}
 
-                                        {type === 'Less' && (
+                                        {(type === 'Less' || type === 'Expense' || type === 'Advance' || type === 'Salary') && (
                                             <div className="space-y-2 animate-scale-in">
-                                                <label className="text-[10px] font-black text-slate-500 uppercase ml-4 tracking-[0.2em]">Return Description</label>
+                                                <label className="text-[10px] font-black text-slate-500 uppercase ml-4 tracking-[0.2em]">{isExpenseMode ? 'Voucher Details' : 'Return Description'}</label>
                                                 <div className="relative group">
                                                     <textarea
                                                         value={description}
                                                         onChange={(e) => setDescription(e.target.value)}
-                                                        placeholder="e.g. Malkist 10/- 2 PKT Returned"
-                                                        className="w-full bg-slate-950/50 border border-white/5 focus:border-red-600/40 rounded-3xl py-3 px-6 text-slate-100 font-bold outline-none transition-all text-xs tracking-wide shadow-inner placeholder:text-slate-600"
+                                                        placeholder={isExpenseMode ? "e.g. Petrol ₹500, Driver Lunch ₹150" : "e.g. Malkist 10/- 2 PKT Returned"}
+                                                        className={`w-full bg-slate-950/50 border border-white/5 focus:border-${isExpenseMode ? 'blue' : 'red'}-600/40 rounded-3xl py-3 px-6 text-white font-bold outline-none transition-all text-sm tracking-wide shadow-inner placeholder:text-slate-600`}
                                                         rows={2}
+                                                        spellCheck="false"
+                                                        autoComplete="off"
                                                     />
                                                 </div>
                                             </div>
@@ -429,6 +514,8 @@ export default function CollectPaymentModal({ isOpen, onClose, bill, salesmanID,
                                                             placeholder="0.00"
                                                             className="w-full bg-slate-950/50 border border-white/5 focus:border-blue-600/40 rounded-3xl py-4 pl-14 pr-6 text-2xl sm:text-3xl font-black text-white placeholder-slate-600 outline-none transition-all shadow-inner tracking-tighter"
                                                             autoFocus
+                                                            spellCheck="false"
+                                                            autoComplete="off"
                                                         />
                                                     </div>
                                                 </>

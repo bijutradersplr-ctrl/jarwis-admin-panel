@@ -322,6 +322,8 @@ export default function Dashboard({ salesmanID, authUID }) {
     const [showQuickActions, setShowQuickActions] = useState(false);
     const [allMasterPlans, setAllMasterPlans] = useState({});
     const [allSalesmenTargets, setAllSalesmenTargets] = useState([]);
+    const [settlementStatus, setSettlementStatus] = useState(null);
+    const [settlementDebug, setSettlementDebug] = useState("Init");
 
     // Pre-calculate all company stats to fix scoping/hoisting issues in Carousel
     const allCompanyStats = useMemo(() => {
@@ -878,6 +880,53 @@ export default function Dashboard({ salesmanID, authUID }) {
         }
     };
 
+    // --- LISTEN FOR TODAY'S SETTLEMENT STATUS ---
+    useEffect(() => {
+        if (!selectedDailyRoute || !salesmanID) {
+            setSettlementStatus(null);
+            setSettlementDebug(`No route (${!!selectedDailyRoute}) or salesman (${salesmanID})`);
+            return;
+        }
+
+        setSettlementDebug(`Listening for: R=${selectedDailyRoute.id}, S=${salesmanID}`);
+
+        const q = query(
+            collection(db, "route_settlements"),
+            where("route_id", "==", selectedDailyRoute.id),
+            where("salesman", "==", salesmanID),
+            where("status", "==", "Settled")
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            if (!snapshot.empty) {
+                const today = new Date().toDateString();
+                let debugOut = `Docs: ${snapshot.docs.length}. `;
+
+                const todaySettlement = snapshot.docs.find(doc => {
+                    const rawTs = doc.data().timestamp;
+                    const dateObj = rawTs?.toDate ? rawTs.toDate() : new Date(); // Fallback for local cache
+                    const isToday = dateObj.toDateString() === today;
+                    debugOut += `[${doc.id}: ${dateObj.toDateString()} (Today? ${isToday})] `;
+                    return isToday;
+                });
+
+                if (todaySettlement) {
+                    debugOut += " -> FOUND";
+                    setSettlementStatus(todaySettlement.data());
+                } else {
+                    debugOut += " -> No doc for today";
+                    setSettlementStatus(null);
+                }
+                setSettlementDebug(debugOut);
+            } else {
+                setSettlementDebug("Snapshot empty.");
+                setSettlementStatus(null);
+            }
+        });
+
+        return () => unsubscribe();
+    }, [selectedDailyRoute, salesmanID]);
+
     const handleLogout = () => {
         // ... (existing handleLogout)
         getAuth().signOut().then(() => {
@@ -1372,6 +1421,10 @@ export default function Dashboard({ salesmanID, authUID }) {
                     </div>
                 </div>
             </div>
+            {/* DEBUG INJECT */}
+            <div className="absolute top-0 left-0 bg-red-500 text-white text-[9px] p-2 z-[9999] pointer-events-none break-words max-w-full">
+                DEBUG: {settlementDebug}
+            </div>
         </div>
     );
 
@@ -1548,6 +1601,44 @@ export default function Dashboard({ salesmanID, authUID }) {
                                 </div>
                             </button>
 
+                            {/* 3. Day Settlement Button (Premium Gold/Amber Glow) */}
+                            {settlementStatus ? (
+                                <div className="group relative overflow-hidden bg-emerald-900/20 p-1.5 rounded-[2rem] shadow-2xl border border-emerald-500/20 w-full max-w-sm shrink-0 mt-2">
+                                    <div className="bg-slate-950/80 rounded-[1.5rem] p-5 relative z-10 flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center shrink-0">
+                                                <CheckCircle2 size={24} className="text-emerald-400" />
+                                            </div>
+                                            <div className="text-left">
+                                                <h3 className="text-lg font-black text-emerald-400 tracking-tight uppercase">Settled</h3>
+                                                <p className="text-emerald-500/70 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">Handover Completed</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => { playSound('click'); setView('DAY_SUMMARY'); }}
+                                    className="group relative overflow-hidden bg-slate-900/40 p-1.5 rounded-[2rem] shadow-2xl active:scale-[0.98] transition-all duration-300 border border-amber-500/20 w-full max-w-sm shrink-0 mt-2"
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                    <div className="bg-slate-950/80 rounded-[1.5rem] p-5 relative z-10 flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
+                                                <CheckCircle2 size={24} className="text-white drop-shadow-md" />
+                                            </div>
+                                            <div className="text-left">
+                                                <h3 className="text-lg font-black text-white tracking-tight uppercase">Day Settlement</h3>
+                                                <p className="text-amber-400 text-[10px] font-bold uppercase tracking-[0.2em] mt-0.5">Physical Tally & Handover</p>
+                                            </div>
+                                        </div>
+                                        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-500 shrink-0">
+                                            <ArrowRight size={16} />
+                                        </div>
+                                    </div>
+                                </button>
+                            )}
+
                             {/* Route Selection Button Contextual for Delivery */}
                             <button
                                 onClick={() => { playSound('click'); setView('OUTSTANDING_ROUTE_SELECT'); }}
@@ -1674,7 +1765,13 @@ export default function Dashboard({ salesmanID, authUID }) {
                                     </button>
 
                                     {/* Clickable Total Outstanding Section */}
-                                    <div className="w-full flex flex-col items-center bg-white/5 p-6 rounded-3xl border border-white/5">
+                                    <div className="w-full flex flex-col items-center bg-white/5 p-6 rounded-3xl border border-white/5 relative mt-4">
+                                        {settlementStatus && (
+                                            <div className="absolute -top-4 bg-emerald-500/20 border border-emerald-500/30 px-6 py-1.5 rounded-full flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.2)] z-10">
+                                                <CheckCircle2 size={14} className="text-emerald-400" />
+                                                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Route Settled</span>
+                                            </div>
+                                        )}
 
                                         <button
                                             onClick={() => { playSound('click'); setView('OUTSTANDING_LIST'); }}
@@ -1779,26 +1876,42 @@ export default function Dashboard({ salesmanID, authUID }) {
 
                                 {/* NEW: Delivery Day Summary Shortcut */}
                                 {selectedDailyRoute && (
-                                    <button
-                                        onClick={() => { playSound('click'); setView('DAY_SUMMARY'); }}
-                                        className="group relative overflow-hidden bg-slate-900/40 p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10 mt-2"
-                                    >
-                                        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                                        <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
-                                                    <Truck size={24} className="text-white drop-shadow-md" />
+                                    settlementStatus ? (
+                                        <div className="group relative overflow-hidden bg-emerald-900/20 p-0.5 rounded-[2rem] shadow-2xl border border-emerald-500/20 mt-2">
+                                            <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center shrink-0">
+                                                        <CheckCircle2 size={24} className="text-emerald-400" />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <h3 className="text-base font-black text-emerald-400 tracking-tight transition-colors">Route Settled</h3>
+                                                        <p className="text-emerald-500/70 text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5">Tally Completed</p>
+                                                    </div>
                                                 </div>
-                                                <div className="text-left">
-                                                    <h3 className="text-base font-black text-white tracking-tight group-hover:text-emerald-400 transition-colors">Day Summary</h3>
-                                                    <p className="text-slate-500 text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5">Tally Today's Load</p>
-                                                </div>
-                                            </div>
-                                            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-emerald-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
-                                                <ArrowRight size={16} />
                                             </div>
                                         </div>
-                                    </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => { playSound('click'); setView('DAY_SUMMARY'); }}
+                                            className="group relative overflow-hidden bg-slate-900/40 p-0.5 rounded-[2rem] shadow-2xl active:scale-[0.98] hover:translate-y-[-4px] transition-all duration-300 border border-white/10 mt-2"
+                                        >
+                                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                            <div className="bg-slate-950/40 rounded-[1.9rem] p-4 sm:p-5 relative z-10 flex items-center justify-between">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)] group-hover:scale-110 transition-transform duration-300 shrink-0">
+                                                        <Truck size={24} className="text-white drop-shadow-md" />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <h3 className="text-base font-black text-white tracking-tight group-hover:text-emerald-400 transition-colors">Day Summary</h3>
+                                                        <p className="text-slate-500 text-[9px] font-bold uppercase tracking-[0.2em] mt-0.5">Tally Today's Load</p>
+                                                    </div>
+                                                </div>
+                                                <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-emerald-500 text-slate-500 group-hover:text-white transition-all shrink-0 ml-2">
+                                                    <ArrowRight size={16} />
+                                                </div>
+                                            </div>
+                                        </button>
+                                    )
                                 )}
                             </>
                         ) : (
