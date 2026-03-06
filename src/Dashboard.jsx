@@ -1988,9 +1988,9 @@ export default function Dashboard({ salesmanID, authUID }) {
 
                                         <div className="flex flex-col items-center mt-3">
                                             <span className="text-5xl font-black text-white italic tracking-tighter drop-shadow-2xl mb-1">
-                                                ₹{companyStats.companyAchieved.toLocaleString('en-IN')}
+                                                ₹{Math.round(companyStats.companyAchieved).toLocaleString('en-IN')}
                                             </span>
-                                            <span className="text-slate-500 text-[11px] font-black tracking-[0.2em] uppercase opacity-60">TARGET: ₹{companyStats.companyTarget.toLocaleString('en-IN')}</span>
+                                            <span className="text-slate-500 text-[11px] font-black tracking-[0.2em] uppercase opacity-60">TARGET: ₹{Math.round(companyStats.companyTarget).toLocaleString('en-IN')}</span>
                                         </div>
 
                                         <div className={`mt-8 px-8 py-3 rounded-full border border-white/10 bg-[#121828] shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex items-center gap-3  group-hover:bg-[#1a2336] group-hover:border-white/20 transition-all`}>

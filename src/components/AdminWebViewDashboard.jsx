@@ -411,10 +411,10 @@ export default function AdminWebViewDashboard({
                                                         </span>
                                                         <div className="flex items-baseline gap-2">
                                                             <span className="text-3xl sm:text-4xl font-black text-white tracking-tighter drop-shadow-md group-hover:text-slate-50 transition-colors leading-none">
-                                                                ₹{a.toLocaleString('en-IN')}
+                                                                ₹{Math.round(a).toLocaleString('en-IN')}
                                                             </span>
                                                             <span className="text-xs sm:text-sm font-bold text-slate-500 tracking-wider">
-                                                                / ₹{t.toLocaleString('en-IN')}
+                                                                / ₹{Math.round(t).toLocaleString('en-IN')}
                                                             </span>
                                                         </div>
                                                     </div>

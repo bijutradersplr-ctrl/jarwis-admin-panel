@@ -2009,9 +2009,9 @@ const DashboardView = ({ salesmenData, allPayments, reactiveTargets, dashboardMe
                                                             <div className="flex flex-col items-center px-1 gap-1">
                                                                 <span className={`text-[10px] sm:text-xs font-black uppercase tracking-[0.3em] truncate max-w-full text-center bg-gradient-to-r ${data.color} bg-clip-text text-transparent drop-shadow-sm`}>{name}</span>
                                                                 <div className="flex items-center gap-2 flex-wrap justify-center mt-1">
-                                                                    <span className="text-sm font-black text-white italic truncate pr-1">₹{data.achieved.toLocaleString('en-IN')}</span>
+                                                                    <span className="text-sm font-black text-white italic truncate pr-1">₹{Math.round(data.achieved).toLocaleString('en-IN')}</span>
                                                                     <span className="text-slate-600 text-[10px] shrink-0">/</span>
-                                                                    <span className="text-slate-500 text-[9px] sm:text-[11px] font-black italic truncate pr-1">₹{data.target.toLocaleString('en-IN')}</span>
+                                                                    <span className="text-slate-500 text-[9px] sm:text-[11px] font-black italic truncate pr-1">₹{Math.round(data.target).toLocaleString('en-IN')}</span>
                                                                 </div>
                                                             </div>
                                                             <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden border border-white/5 relative">
